@@ -18,7 +18,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function update(dt) {
         state.t += dt; // simple time advance
-        if (window.Input) player.update(dt, window.Input, canvasSize);
+        if (window.Input) {
+            if (typeof window.Input.update === 'function') window.Input.update();
+            player.update(dt, window.Input, canvasSize);
+        }
     }
 
     function render() {
