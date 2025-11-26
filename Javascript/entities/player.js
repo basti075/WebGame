@@ -38,20 +38,56 @@
         this.jumpBufferTimer = 0;
     }
 
-    // bounds: optional { width, height }
-    Player.prototype.update = function (dt, input, bounds) {
-        // horizontal input
-        var vx = 0;
-        if (input.isDown('ArrowLeft') || input.isDown('KeyA')) vx -= 1;
-        if (input.isDown('ArrowRight') || input.isDown('KeyD')) vx += 1;
+    // env: either bounds {width,height} or a Level instance with isSolidAt(px,py) and tileSize
+    Player.prototype.update = function (dt, input, env) {
+        var half = this.size / 2;
 
-        // horizontal movement: if we are in a wall-jump forced period, apply forced vx
+        // determine if env is a level
+        var isLevel = !!(env && typeof env.isSolidAt === 'function');
+        var ts = isLevel ? env.tileSize : null;
+
+        // horizontal input
+        var dir = 0;
+        if (input.isDown('ArrowLeft') || input.isDown('KeyA')) dir -= 1;
+        if (input.isDown('ArrowRight') || input.isDown('KeyD')) dir += 1;
+
+        // jump input
+        var jumpKeyDown = input.isDown('Space') || input.isDown('ArrowUp') || input.isDown('KeyW');
+        var jumpEdge = jumpKeyDown && !this.lastJumpKeyDown;
+        // decrement jump buffer
+        if (this.jumpBufferTimer > 0) this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - dt);
+        if (jumpEdge && !this.onGround) this.jumpBufferTimer = this.jumpBufferTime;
+
+        // horizontal velocity
         if (this.wallJumpTimer > 0) {
-            this.x += this.vx * dt;
+            // forced vx already stored in this.vx from wall-jump
             this.wallJumpTimer -= dt;
             if (this.wallJumpTimer <= 0) this.vx = 0;
         } else {
-            this.x += vx * this.speed * dt;
+            this.vx = dir * this.speed;
+        }
+
+        // move horizontally and resolve tile collisions if level provided
+        this.x += this.vx * dt;
+        var touchingLeft = false, touchingRight = false;
+        if (isLevel && ts) {
+            var topY = this.y - half + 1;
+            var bottomY = this.y + half - 1;
+            var leftX = this.x - half;
+            if (env.isSolidAt(leftX, topY) || env.isSolidAt(leftX, bottomY)) {
+                // collided with left tile; push to right
+                var tileX = Math.floor(leftX / ts);
+                this.x = (tileX + 1) * ts + half + 0.001;
+                touchingLeft = true;
+                this.vx = 0;
+            }
+            var rightX = this.x + half;
+            if (env.isSolidAt(rightX, topY) || env.isSolidAt(rightX, bottomY)) {
+                var tileX2 = Math.floor(rightX / ts);
+                this.x = tileX2 * ts - half - 0.001;
+                touchingRight = true;
+                this.vx = 0;
+            }
         }
 
         // ensure vertical velocity exists
@@ -61,48 +97,50 @@
         this.vy += this.gravity * dt;
         if (this.vy > this.terminal) this.vy = this.terminal;
 
-        // jump input handling
-        var jumpKeyDown = input.isDown('Space') || input.isDown('ArrowUp') || input.isDown('KeyW');
-        var jumpEdge = jumpKeyDown && !this.lastJumpKeyDown;
-        // decrement jump buffer timer
-        if (this.jumpBufferTimer > 0) this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - dt);
-        // if jump was pressed in air, buffer it
-        if (jumpEdge && !this.onGround) {
-            this.jumpBufferTimer = this.jumpBufferTime;
-        }
-
-        // integrate vertical
+        // move vertically and resolve collisions
         this.y += this.vy * dt;
+        if (isLevel && ts) {
+            var leftX2 = this.x - half + 1;
+            var rightX2 = this.x + half - 1;
+            var bottomY2 = this.y + half;
+            var topY2 = this.y - half;
+            var landed = false;
 
-        // clamp to bounds if provided (keep player fully inside)
-        if (bounds && typeof bounds.width === 'number' && typeof bounds.height === 'number') {
-            var half = this.size / 2;
-            var minX = half;
-            var maxX = Math.max(minX, bounds.width - half);
-            var minY = half;
-            var maxY = Math.max(minY, bounds.height - half);
+            var eps = 0.001;
+            var spanLeft = this.x - half + eps;
+            var spanRight = this.x + half - eps;
+            var txMin = Math.floor(spanLeft / ts);
+            var txMax = Math.floor(spanRight / ts);
 
-            // horizontal clamp and wall detection
-            var touchingLeft = false, touchingRight = false;
-            if (this.x < minX) { this.x = minX; touchingLeft = true; }
-            if (this.x > maxX) { this.x = maxX; touchingRight = true; }
-
-            // vertical clamp + ground detection
-            if (this.y > maxY) {
-                // landed on ground
-                this.y = maxY;
+            // bottom / landing check
+            var tileRowBottom = Math.floor(bottomY2 / ts);
+            var foundBottom = false;
+            for (var tx = txMin; tx <= txMax; tx++) {
+                var sampleX = (tx + 0.5) * ts;
+                if (env.isSolidAt(sampleX, bottomY2)) { foundBottom = true; break; }
+            }
+            if (foundBottom) {
+                this.y = tileRowBottom * ts - half - 0.001;
                 this.vy = 0;
                 this.onGround = true;
-            } else if (this.y < minY) {
-                // ceiling
-                this.y = minY;
-                this.vy = 0;
+                landed = true;
             } else {
-                // in air
-                if (this.y < maxY - 0.001) this.onGround = false;
+                // ceiling check
+                var tileRowTop = Math.floor(topY2 / ts);
+                var foundTop = false;
+                for (var tx2 = txMin; tx2 <= txMax; tx2++) {
+                    var sampleX2 = (tx2 + 0.5) * ts;
+                    if (env.isSolidAt(sampleX2, topY2)) { foundTop = true; break; }
+                }
+                if (foundTop) {
+                    this.y = (tileRowTop + 1) * ts + half + 0.001;
+                    this.vy = 0;
+                } else {
+                    if (!landed) this.onGround = false;
+                }
             }
 
-            // wall-stick / wall-slide detection: require touching side and pressing into it while airborne
+            // wall-stick / wall-slide detection
             var pressingLeft = input.isDown('ArrowLeft') || input.isDown('KeyA');
             var pressingRight = input.isDown('ArrowRight') || input.isDown('KeyD');
             var wallStick = false;
@@ -111,22 +149,16 @@
                 else if (touchingRight && pressingRight) wallStick = 'right';
             }
 
-            // if wall-sticking, limit downward speed (slide) and allow wall-jump
             if (wallStick) {
                 if (this.vy > this.wallSlideSpeed) this.vy = this.wallSlideSpeed;
-                // wall-jump when jump key edge is detected
                 if (jumpEdge) {
-                    // perform wall-jump away from wall
                     this.vy = -this.jumpSpeed;
-                    // horizontal impulse away from wall
                     this.vx = (wallStick === 'left') ? this.wallJumpHorizontal : -this.wallJumpHorizontal;
-                    this.wallJumpTimer = this.wallJumpTime; // small period where forced vx applies
+                    this.wallJumpTimer = this.wallJumpTime;
                     this.onGround = false;
-                    // clear buffered jump since we used it for wall-jump
                     this.jumpBufferTimer = 0;
                 }
             } else {
-                // normal jump from ground (also handle buffered jump)
                 if ((jumpEdge && this.onGround) || (this.onGround && this.jumpBufferTimer > 0)) {
                     this.vy = -this.jumpSpeed;
                     this.onGround = false;
@@ -142,6 +174,57 @@
             }
 
             this.lastJumpKeyDown = jumpKeyDown;
+        } else {
+            // fallback: use bounds-like object if provided
+            var bounds = env;
+            if (bounds && typeof bounds.width === 'number' && typeof bounds.height === 'number') {
+                var minX = half;
+                var maxX = Math.max(minX, bounds.width - half);
+                var minY = half;
+                var maxY = Math.max(minY, bounds.height - half);
+
+                if (this.x < minX) { this.x = minX; touchingLeft = true; }
+                if (this.x > maxX) { this.x = maxX; touchingRight = true; }
+
+                if (this.y > maxY) {
+                    this.y = maxY; this.vy = 0; this.onGround = true;
+                } else if (this.y < minY) {
+                    this.y = minY; this.vy = 0;
+                } else {
+                    if (this.y < maxY - 0.001) this.onGround = false;
+                }
+
+                var pressingLeft = input.isDown('ArrowLeft') || input.isDown('KeyA');
+                var pressingRight = input.isDown('ArrowRight') || input.isDown('KeyD');
+                var wallStick = false;
+                if (!this.onGround) {
+                    if (touchingLeft && pressingLeft) wallStick = 'left';
+                    else if (touchingRight && pressingRight) wallStick = 'right';
+                }
+
+                if (wallStick) {
+                    if (this.vy > this.wallSlideSpeed) this.vy = this.wallSlideSpeed;
+                    if (jumpEdge) {
+                        this.vy = -this.jumpSpeed;
+                        this.vx = (wallStick === 'left') ? this.wallJumpHorizontal : -this.wallJumpHorizontal;
+                        this.wallJumpTimer = this.wallJumpTime;
+                        this.onGround = false;
+                        this.jumpBufferTimer = 0;
+                    }
+                } else {
+                    if ((jumpEdge && this.onGround) || (this.onGround && this.jumpBufferTimer > 0)) {
+                        this.vy = -this.jumpSpeed;
+                        this.onGround = false;
+                        this.jumpBufferTimer = 0;
+                    }
+                }
+
+                if (this.onGround && this.jumpBufferTimer > 0) {
+                    this.vy = -this.jumpSpeed; this.onGround = false; this.jumpBufferTimer = 0;
+                }
+
+                this.lastJumpKeyDown = jumpKeyDown;
+            }
         }
     };
 

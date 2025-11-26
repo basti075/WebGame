@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Level Editor</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: #222;
+            color: #ddd;
+            font-family: system-ui, Segoe UI, Arial
+        }
+
+        .wrap {
+            display: flex;
+            gap: 12px;
+            padding: 12px
+        }
+
+        canvas {
+            background: #111;
+            image-rendering: pixelated;
+            border: 1px solid #333
+        }
+
+        .panel {
+            width: 300px
+        }
+
+        .panel h2 {
+            margin: 0 0 8px 0;
+            font-size: 16px
+        }
+
+        .tools {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap
+        }
+
+        button,
+        input,
+        select {
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #111;
+            color: #ddd
+        }
+
+        textarea {
+            width: 100%;
+            height: 260px;
+            background: #0b0b0b;
+            color: #ddd;
+            border: 1px solid #333;
+            padding: 8px
+        }
+
+        label {
+            display: block;
+            margin-top: 8px
+        }
+
+        .small {
+            font-size: 12px;
+            padding: 4px
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div>
+            <canvas id="editorCanvas" width="960" height="540"></canvas>
+        </div>
+        <div class="panel">
+            <h2>Level Editor</h2>
+            <div class="tools">
+                <button id="brushSolid">Brush: # (solid)</button>
+                <button id="brushEmpty">Brush: . (empty)</button>
+                <button id="modeObject">Mode: Object</button>
+                <select id="objectType" class="small">
+                    <option value="playerSpawn">playerSpawn</option>
+                    <option value="goal">goal</option>
+                </select>
+            </div>
+
+            <label>Grid: <input type="checkbox" id="showGrid" checked></label>
+            <label>Tile size: <input id="tileSize" type="number" value="12" min="4" max="64"></label>
+            <label>Width: <input id="mapWidth" type="number" value="80" min="8" max="200"></label>
+            <label>Height: <input id="mapHeight" type="number" value="45" min="8" max="200"></label>
+
+            <div style="margin-top:8px">
+                <input id="fileInput" type="file" accept="application/json" />
+                <button id="loadDefault">New</button>
+                <button id="clear">Clear</button>
+                <button id="fillGround">Fill bottom row</button>
+            </div>
+
+            <div style="margin-top:8px">
+                <button id="export">Download JSON</button>
+                <button id="copyJson">Copy JSON</button>
+            </div>
+
+            <label>Preview / JSON</label>
+            <textarea id="jsonOut" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const canvas = document.getElementById('editorCanvas');
+            const ctx = canvas.getContext('2d');
+            const tileSizeInput = document.getElementById('tileSize');
+            const widthInput = document.getElementById('mapWidth');
+            const heightInput = document.getElementById('mapHeight');
+            const jsonOut = document.getElementById('jsonOut');
+            const fileInput = document.getElementById('fileInput');
+            const showGridCb = document.getElementById('showGrid');
+
+            let tileSize = Number(tileSizeInput.value) || 12;
+            let mapW = Number(widthInput.value) || 80;
+            let mapH = Number(heightInput.value) || 45;
+            let rows = [];
+            let objects = [];
+            let brush = '#'; // '#' or '.'
+            let modeObject = false;
+            let objectType = document.getElementById('objectType');
+
+            function makeEmpty() {
+                rows = [];
+                for (let y = 0; y < mapH; y++) rows.push('.'.repeat(mapW));
+                objects = [];
+                refresh();
+            }
+
+            function refresh() {
+                tileSize = Number(tileSizeInput.value) || 12;
+                mapW = Number(widthInput.value) || 80;
+                mapH = Number(heightInput.value) || 45;
+                canvas.width = mapW * tileSize;
+                canvas.height = mapH * tileSize;
+                // ensure rows length
+                if (!rows || rows.length !== mapH) makeEmpty();
+                draw();
+                updateJsonOut();
+            }
+
+            function draw() {
+                ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                for (let y = 0; y < mapH; y++) {
+                    const row = rows[y];
+                    for (let x = 0; x < mapW; x++) {
+                        const ch = row[x];
+                        if (ch === '#') { ctx.fillStyle = '#666'; ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize); }
+                    }
+                }
+                if (showGridCb.checked) {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+                    for (let x = 0; x <= mapW; x++) ctx.strokeRect(x * tileSize + 0.5, 0.5, 0, canvas.height - 1);
+                    for (let y = 0; y <= mapH; y++) ctx.strokeRect(0.5, y * tileSize + 0.5, canvas.width - 1, 0);
+                }
+                // draw objects
+                for (const o of objects) {
+                    if (o.type === 'playerSpawn') { ctx.fillStyle = '#0f8'; ctx.fillRect(o.x - 4, o.y - 4, 8, 8); }
+                    else if (o.type === 'goal') { ctx.fillStyle = '#ff0'; ctx.fillRect(o.x - 6, o.y - 6, 12, 12); }
+                    else { ctx.fillStyle = '#f0f'; ctx.fillRect(o.x - 3, o.y - 3, 6, 6); }
+                }
+            }
+
+            function updateJsonOut() {
+                const data = { tileSize: tileSize, width: mapW, height: mapH, tiles: rows.slice(), objects: objects.slice() };
+                jsonOut.value = JSON.stringify(data, null, 2);
+            }
+
+            canvas.addEventListener('pointerdown', function (e) {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / tileSize);
+                const y = Math.floor((e.clientY - rect.top) / tileSize);
+                if (x < 0 || y < 0 || x >= mapW || y >= mapH) return;
+                if (modeObject) {
+                    // place object at pixel center
+                    const ox = x * tileSize + Math.floor(tileSize / 2);
+                    const oy = y * tileSize + Math.floor(tileSize / 2);
+                    // remove same-type close objects
+                    objects = objects.filter(o => !(o.type === objectType.value));
+                    objects.push({ type: objectType.value, x: ox, y: oy });
+                } else {
+                    // paint
+                    const row = rows[y].split(''); row[x] = brush; rows[y] = row.join('');
+                }
+                draw(); updateJsonOut();
+            });
+
+            document.getElementById('brushSolid').addEventListener('click', () => { brush = '#'; modeObject = false; document.getElementById('modeObject').textContent = 'Mode: Paint'; });
+            document.getElementById('brushEmpty').addEventListener('click', () => { brush = '.'; modeObject = false; document.getElementById('modeObject').textContent = 'Mode: Paint'; });
+            document.getElementById('modeObject').addEventListener('click', () => { modeObject = !modeObject; document.getElementById('modeObject').textContent = modeObject ? 'Mode: Object' : 'Mode: Paint'; });
+            document.getElementById('clear').addEventListener('click', () => { makeEmpty(); });
+            document.getElementById('loadDefault').addEventListener('click', () => { makeEmpty(); });
+            document.getElementById('fillGround').addEventListener('click', () => { rows[mapH - 1] = '#'.repeat(mapW); draw(); updateJsonOut(); });
+
+            fileInput.addEventListener('change', function (e) {
+                const f = e.target.files[0]; if (!f) return;
+                const reader = new FileReader();
+                reader.onload = function () {
+                    try {
+                        const data = JSON.parse(reader.result);
+                        if (!Array.isArray(data.tiles)) throw new Error('Invalid level file');
+                        rows = data.tiles.map(r => String(r));
+                        mapW = data.width || (rows[0] || '').length;
+                        mapH = data.height || rows.length;
+                        tileSizeInput.value = data.tileSize || tileSizeInput.value;
+                        widthInput.value = mapW; heightInput.value = mapH;
+                        objects = Array.isArray(data.objects) ? data.objects.slice() : [];
+                        refresh();
+                    } catch (err) { alert('Failed to load JSON: ' + err.message); }
+                };
+                reader.readAsText(f);
+            });
+
+            document.getElementById('export').addEventListener('click', function () {
+                const data = { tileSize: tileSize, width: mapW, height: mapH, tiles: rows.slice(), objects: objects.slice() };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'level.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            });
+
+            document.getElementById('copyJson').addEventListener('click', () => { navigator.clipboard.writeText(jsonOut.value); });
+
+            // handle tileSize / dims change
+            tileSizeInput.addEventListener('change', refresh);
+            widthInput.addEventListener('change', () => { mapW = Number(widthInput.value) || mapW; makeEmpty(); });
+            heightInput.addEventListener('change', () => { mapH = Number(heightInput.value) || mapH; makeEmpty(); });
+            showGridCb.addEventListener('change', draw);
+
+            // initial
+            makeEmpty();
+        })();
+    </script>
+</body>
+
+</html>
