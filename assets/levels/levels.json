@@ -1,0 +1,10 @@
+[
+    {
+        "name": "Level 1",
+        "file": "assets/levels/level1.json"
+    },
+    {
+        "name": "Level 2",
+        "file": "assets/levels/level2.json"
+    }
+]

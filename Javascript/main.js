@@ -48,6 +48,23 @@ document.addEventListener('DOMContentLoaded', function () {
             if (player && typeof player.draw === 'function') player.draw(ctx);
         }
 
+        // expose pause/resume helpers for the current running game
+        window._currentGame = {
+            update: update,
+            render: render,
+            pause: function () {
+                if (window.GameLoop && typeof window.GameLoop.stop === 'function') {
+                    try { window.GameLoop.stop(); } catch (e) { }
+                }
+                // if fallback loop was used, we can't control it easily — rely on GameLoop when available
+            },
+            resume: function () {
+                if (window.GameLoop && typeof window.GameLoop.start === 'function') {
+                    window.GameLoop.start({ update: update, render: render });
+                }
+            }
+        };
+
         if (window.GameLoop && typeof window.GameLoop.start === 'function') {
             window.GameLoop.start({ update: update, render: render });
         } else {
@@ -60,17 +77,30 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+
+    // expose starter for title screen or external callers
+    window.startWithLevel = startWithLevel;
+
     // load level, then start
-    if (window.LevelManager && typeof window.LevelManager.load === 'function') {
-        LevelManager.load('assets/levels/level1.json').then(function (lvl) {
-            startWithLevel(lvl);
-        }).catch(function (err) {
-            console.error('Failed to load level:', err);
-            // start without level as fallback
-            startWithLevel(null);
-        });
+    if (window.skipAutoStart) {
+        // Title screen will call startWithLevel when the player chooses a level.
+        // If a title script preloaded a level into window._pendingLevel, start it now.
+        if (window._pendingLevel) {
+            startWithLevel(window._pendingLevel);
+            window._pendingLevel = null;
+        }
     } else {
-        startWithLevel(null);
+        if (window.LevelManager && typeof window.LevelManager.load === 'function') {
+            LevelManager.load('assets/levels/level1.json').then(function (lvl) {
+                startWithLevel(lvl);
+            }).catch(function (err) {
+                console.error('Failed to load level:', err);
+                // start without level as fallback
+                startWithLevel(null);
+            });
+        } else {
+            startWithLevel(null);
+        }
     }
 });
 
