@@ -9,6 +9,7 @@
         JUMP_SPEED: 500, // px/s initial jump velocity
         TERMINAL: 1200, // max fall speed px/s
         JUMP_BUFFER_TIME: 0.12, // seconds to queue jump input before landing
+        COYOTE_TIME: 0.13, // seconds allowed to jump after leaving ground
         WALL_SLIDE_SPEED: 100, // px/s max sliding down a wall
         WALL_JUMP_HORIZONTAL: 300, // px/s horizontal impulse when wall-jumping
         WALL_JUMP_TIME: 0.18 // seconds of forced horizontal after wall-jump
@@ -36,6 +37,9 @@
         // jump buffering (queue jump pressed in air for short time)
         this.jumpBufferTime = PlayerConfig.JUMP_BUFFER_TIME;
         this.jumpBufferTimer = 0;
+        // coyote time (allow jump shortly after leaving ground)
+        this.coyoteTime = PlayerConfig.COYOTE_TIME;
+        this.coyoteTimer = 0;
     }
 
     // env: either bounds {width,height} or a Level instance with isSolidAt(px,py) and tileSize
@@ -123,6 +127,7 @@
                 this.y = tileRowBottom * ts - half - 0.001;
                 this.vy = 0;
                 this.onGround = true;
+                this.coyoteTimer = this.coyoteTime; // reset coyote when we land
                 landed = true;
             } else {
                 // ceiling check
@@ -139,6 +144,9 @@
                     if (!landed) this.onGround = false;
                 }
             }
+
+            // decrement coyote timer when not on ground
+            if (!this.onGround) this.coyoteTimer = Math.max(0, this.coyoteTimer - dt);
 
             // wall-stick / wall-slide detection
             var pressingLeft = input.isDown('ArrowLeft') || input.isDown('KeyA');
@@ -159,17 +167,21 @@
                     this.jumpBufferTimer = 0;
                 }
             } else {
-                if ((jumpEdge && this.onGround) || (this.onGround && this.jumpBufferTimer > 0)) {
+                // allow jump if on ground or within coyote time
+                var canJumpNow = this.onGround || this.coyoteTimer > 0;
+                if ((jumpEdge && canJumpNow) || (canJumpNow && this.jumpBufferTimer > 0)) {
                     this.vy = -this.jumpSpeed;
                     this.onGround = false;
+                    this.coyoteTimer = 0; // consume coyote
                     this.jumpBufferTimer = 0;
                 }
             }
 
             // if we just landed and had a buffered jump, trigger it
-            if (this.onGround && this.jumpBufferTimer > 0) {
+            if ((this.onGround || this.coyoteTimer > 0) && this.jumpBufferTimer > 0) {
                 this.vy = -this.jumpSpeed;
                 this.onGround = false;
+                this.coyoteTimer = 0;
                 this.jumpBufferTimer = 0;
             }
 
@@ -187,12 +199,15 @@
                 if (this.x > maxX) { this.x = maxX; touchingRight = true; }
 
                 if (this.y > maxY) {
-                    this.y = maxY; this.vy = 0; this.onGround = true;
+                    this.y = maxY; this.vy = 0; this.onGround = true; this.coyoteTimer = this.coyoteTime;
                 } else if (this.y < minY) {
                     this.y = minY; this.vy = 0;
                 } else {
                     if (this.y < maxY - 0.001) this.onGround = false;
                 }
+
+                // decrement coyote timer when not on ground (bounds fallback)
+                if (!this.onGround) this.coyoteTimer = Math.max(0, this.coyoteTimer - dt);
 
                 var pressingLeft = input.isDown('ArrowLeft') || input.isDown('KeyA');
                 var pressingRight = input.isDown('ArrowRight') || input.isDown('KeyD');
@@ -212,15 +227,17 @@
                         this.jumpBufferTimer = 0;
                     }
                 } else {
-                    if ((jumpEdge && this.onGround) || (this.onGround && this.jumpBufferTimer > 0)) {
+                    var canJumpNow2 = this.onGround || this.coyoteTimer > 0;
+                    if ((jumpEdge && canJumpNow2) || (canJumpNow2 && this.jumpBufferTimer > 0)) {
                         this.vy = -this.jumpSpeed;
                         this.onGround = false;
+                        this.coyoteTimer = 0;
                         this.jumpBufferTimer = 0;
                     }
                 }
 
-                if (this.onGround && this.jumpBufferTimer > 0) {
-                    this.vy = -this.jumpSpeed; this.onGround = false; this.jumpBufferTimer = 0;
+                if ((this.onGround || this.coyoteTimer > 0) && this.jumpBufferTimer > 0) {
+                    this.vy = -this.jumpSpeed; this.onGround = false; this.coyoteTimer = 0; this.jumpBufferTimer = 0;
                 }
 
                 this.lastJumpKeyDown = jumpKeyDown;

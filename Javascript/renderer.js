@@ -6,7 +6,6 @@
         canvas = document.getElementById(id);
         if (!canvas) { console.warn('Renderer.init: canvas #' + id + ' not found'); return; }
         ctx = canvas.getContext('2d');
-        // Keep logical size from HTML attributes, scale backing store for crisp rendering
         var logicalW = canvas.getAttribute('width') || canvas.width;
         var logicalH = canvas.getAttribute('height') || canvas.height;
         logicalW = parseInt(logicalW, 10);
