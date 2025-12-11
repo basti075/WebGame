@@ -40,6 +40,26 @@
         // coyote time (allow jump shortly after leaving ground)
         this.coyoteTime = PlayerConfig.COYOTE_TIME;
         this.coyoteTimer = 0;
+        // rotation for visual effect (flat-heroes style)
+        this.angle = 0; // radians
+        this.angVel = 0; // radians per second
+        this.maxAngVel = Math.PI * 6; // cap angular velocity
+        this.spinAccel = 20; // responsiveness to input
+        this.spinDamping = 6; // damping when stopping
+        // jump spin: try to do a full 360 during a jump; continues until landing or interrupted by wall
+        this.jumpSpinDuration = 1.5; // seconds for one full 360 if jump completes on time
+        this.jumpSpinSpeed = (2 * Math.PI) / this.jumpSpinDuration; // radians per second
+        this.jumpSpinActive = false; // set true when a jump starts
+        // ground stepping / small-hop visual
+        // tuned for slightly slower step rolls
+        this.stepInterval = 0.24; // seconds between steps while running (was 0.18)
+        this.stepDuration = 0.18; // animation time for each quarter spin/hop (was 0.12)
+        this.stepAngle = Math.PI / 2; // quarter turn per step
+        this.stepTimer = 0; // time until next step available
+        this.stepAnimTimer = 0; // remaining time for current step animation
+        this.stepAnimRate = 0; // angular velocity for current step
+        this.hopHeight = 6; // visual hop pixels
+        this.visualYOffset = 0; // rendered vertical offset for hop
     }
 
     // env: either bounds {width,height} or a Level instance with isSolidAt(px,py) and tileSize
@@ -92,6 +112,14 @@
                 touchingRight = true;
                 this.vx = 0;
             }
+            // if we hit a wall, ensure a flat side is aligned with it and stop jump-spin
+            if (touchingLeft || touchingRight) {
+                var qWall = Math.round(this.angle / (Math.PI / 2));
+                this.angle = qWall * (Math.PI / 2);
+                // cancel jump-spin if we hit a wall mid-air
+                this.jumpSpinActive = false;
+                this.angVel = 0;
+            }
         }
 
         // ensure vertical velocity exists
@@ -124,11 +152,20 @@
                 if (env.isSolidAt(sampleX, bottomY2)) { foundBottom = true; break; }
             }
             if (foundBottom) {
+                var wasGround = this.onGround;
                 this.y = tileRowBottom * ts - half - 0.001;
                 this.vy = 0;
                 this.onGround = true;
                 this.coyoteTimer = this.coyoteTime; // reset coyote when we land
                 landed = true;
+                // stop any jump-spin when we land
+                this.jumpSpinActive = false;
+                this.angVel = 0;
+                // if we just landed this frame, snap angle to nearest quarter to ensure flat side
+                if (!wasGround) {
+                    var quarter = Math.round(this.angle / (Math.PI / 2));
+                    this.angle = quarter * (Math.PI / 2);
+                }
             } else {
                 // ceiling check
                 var tileRowTop = Math.floor(topY2 / ts);
@@ -144,9 +181,7 @@
                     if (!landed) this.onGround = false;
                 }
             }
-
-            // decrement coyote timer when not on ground
-            if (!this.onGround) this.coyoteTimer = Math.max(0, this.coyoteTimer - dt);
+            // wall-stick / wall-slide detection
 
             // wall-stick / wall-slide detection
             var pressingLeft = input.isDown('ArrowLeft') || input.isDown('KeyA');
@@ -165,6 +200,10 @@
                     this.wallJumpTimer = this.wallJumpTime;
                     this.onGround = false;
                     this.jumpBufferTimer = 0;
+                    // start jump-spin on wall-jump
+                    this.jumpSpinActive = true;
+                    var spinSign = (this.vx >= 0) ? 1 : -1;
+                    this.angVel = spinSign * this.jumpSpinSpeed;
                 }
             } else {
                 // allow jump if on ground or within coyote time
@@ -174,6 +213,11 @@
                     this.onGround = false;
                     this.coyoteTimer = 0; // consume coyote
                     this.jumpBufferTimer = 0;
+                    // start jump-spin on normal jump
+                    this.jumpSpinActive = true;
+                    var spinSign2 = (this.vx >= 0) ? 1 : -1;
+                    this.angVel = spinSign2 * this.jumpSpinSpeed;
+                    // start leaving ground: nothing special (no big flip)
                 }
             }
 
@@ -183,6 +227,61 @@
                 this.onGround = false;
                 this.coyoteTimer = 0;
                 this.jumpBufferTimer = 0;
+                // start jump-spin on buffered jump
+                this.jumpSpinActive = true;
+                var spinSign3 = (this.vx >= 0) ? 1 : -1;
+                this.angVel = spinSign3 * this.jumpSpinSpeed;
+            }
+
+            // ground behavior: stepping and rolling
+            if (this.onGround) {
+                // decrement step timer
+                this.stepTimer = Math.max(0, this.stepTimer - dt);
+                var moving = Math.abs(this.vx) > 1e-3;
+                if (moving) {
+                    // when ready, trigger a step: animate quarter-turn and hop
+                    if (this.stepTimer <= 0 && this.stepAnimTimer <= 0) {
+                        var dirSign = (this.vx > 0) ? 1 : -1;
+                        this.stepAnimRate = dirSign * (this.stepAngle / this.stepDuration);
+                        this.stepAnimTimer = this.stepDuration;
+                        this.stepTimer = this.stepInterval;
+                    }
+                } else {
+                    // not moving: slowly snap to nearest flat side
+                    var target = Math.round(this.angle / (Math.PI / 2)) * (Math.PI / 2);
+                    var snapLerp = 1 - Math.exp(-10 * dt);
+                    this.angle += (target - this.angle) * snapLerp;
+                }
+
+                // step animation
+                if (this.stepAnimTimer > 0) {
+                    this.angle += this.stepAnimRate * dt;
+                    // visual hop: use sine progress for smooth up/down
+                    var t = 1 - (this.stepAnimTimer / this.stepDuration);
+                    this.visualYOffset = Math.sin(t * Math.PI) * this.hopHeight;
+                    this.stepAnimTimer = Math.max(0, this.stepAnimTimer - dt);
+                    if (this.stepAnimTimer <= 0) {
+                        this.stepAnimRate = 0;
+                        this.visualYOffset = 0;
+                        // ensure angle snapped to quarter after step for flat landing
+                        var q = Math.round(this.angle / (Math.PI / 2));
+                        this.angle = q * (Math.PI / 2);
+                    }
+                }
+            } else {
+                // airborne: if a jump-spin is active, keep that constant spin until landing or interruption
+                if (this.jumpSpinActive) {
+                    this.angle += this.angVel * dt;
+                } else {
+                    // simple rolling proportional to horizontal speed
+                    var desiredAng = (this.vx > 0 ? 1 : -1) * Math.min(this.maxAngVel, Math.abs(this.vx) / this.size * 2);
+                    var spinLerp = 1 - Math.exp(-this.spinAccel * dt);
+                    this.angVel += (desiredAng - this.angVel) * spinLerp;
+                    this.angVel *= Math.max(0, 1 - this.spinDamping * dt);
+                    if (this.angVel > this.maxAngVel) this.angVel = this.maxAngVel;
+                    if (this.angVel < -this.maxAngVel) this.angVel = -this.maxAngVel;
+                    this.angle += this.angVel * dt;
+                }
             }
 
             this.lastJumpKeyDown = jumpKeyDown;
@@ -197,9 +296,22 @@
 
                 if (this.x < minX) { this.x = minX; touchingLeft = true; }
                 if (this.x > maxX) { this.x = maxX; touchingRight = true; }
+                // if we contacted bounds walls, snap to nearest quarter so a flat side aligns
+                if (touchingLeft || touchingRight) {
+                    var qWallB = Math.round(this.angle / (Math.PI / 2));
+                    this.angle = qWallB * (Math.PI / 2);
+                    // cancel jump-spin if hitting a bounds wall mid-air
+                    this.jumpSpinActive = false;
+                    this.angVel = 0;
+                }
 
+                var wasGroundB = this.onGround;
                 if (this.y > maxY) {
                     this.y = maxY; this.vy = 0; this.onGround = true; this.coyoteTimer = this.coyoteTime;
+                    if (!wasGroundB) {
+                        this.flipRate += this.flipOnLandAngle / this.flipDuration;
+                        this.flipTimer = Math.max(this.flipTimer, this.flipDuration);
+                    }
                 } else if (this.y < minY) {
                     this.y = minY; this.vy = 0;
                 } else {
@@ -225,6 +337,10 @@
                         this.wallJumpTimer = this.wallJumpTime;
                         this.onGround = false;
                         this.jumpBufferTimer = 0;
+                        // start jump-spin on wall-jump (bounds)
+                        this.jumpSpinActive = true;
+                        var spinSignW = (this.vx >= 0) ? 1 : -1;
+                        this.angVel = spinSignW * this.jumpSpinSpeed;
                     }
                 } else {
                     var canJumpNow2 = this.onGround || this.coyoteTimer > 0;
@@ -233,11 +349,44 @@
                         this.onGround = false;
                         this.coyoteTimer = 0;
                         this.jumpBufferTimer = 0;
+                        // flip on jump (bounds)
+                        this.flipRate += this.flipOnJumpAngle / this.flipDuration;
+                        this.flipTimer = Math.max(this.flipTimer, this.flipDuration);
+                        // start jump-spin on bounds jump
+                        this.jumpSpinActive = true;
+                        var spinSignB = (this.vx >= 0) ? 1 : -1;
+                        this.angVel = spinSignB * this.jumpSpinSpeed;
                     }
                 }
 
                 if ((this.onGround || this.coyoteTimer > 0) && this.jumpBufferTimer > 0) {
                     this.vy = -this.jumpSpeed; this.onGround = false; this.coyoteTimer = 0; this.jumpBufferTimer = 0;
+                    // flip on buffered jump
+                    this.flipRate += this.flipOnJumpAngle / this.flipDuration;
+                    this.flipTimer = Math.max(this.flipTimer, this.flipDuration);
+                    // start jump-spin on buffered bounds jump
+                    this.jumpSpinActive = true;
+                    var spinSignBB = (this.vx >= 0) ? 1 : -1;
+                    this.angVel = spinSignBB * this.jumpSpinSpeed;
+                }
+
+                // apply rolling + flip updates (same as level branch)
+                if (this.jumpSpinActive) {
+                    // maintain jump spin until landing
+                    this.angle += this.angVel * dt;
+                } else {
+                    var desiredAngB = -2 * this.vx / this.size;
+                    var spinLerpB = 1 - Math.exp(-this.spinAccel * dt);
+                    this.angVel += (desiredAngB - this.angVel) * spinLerpB;
+                    this.angVel *= Math.max(0, 1 - this.spinDamping * dt);
+                    if (this.angVel > this.maxAngVel) this.angVel = this.maxAngVel;
+                    if (this.angVel < -this.maxAngVel) this.angVel = -this.maxAngVel;
+                    if (this.flipTimer > 0) {
+                        this.angle += this.flipRate * dt;
+                        this.flipTimer = Math.max(0, this.flipTimer - dt);
+                        if (this.flipTimer <= 0) this.flipRate = 0;
+                    }
+                    this.angle += this.angVel * dt;
                 }
 
                 this.lastJumpKeyDown = jumpKeyDown;
@@ -246,8 +395,14 @@
     };
 
     Player.prototype.draw = function (ctx) {
+        if (!ctx) return;
+        ctx.save();
+        // apply visual Y offset for small hop during step animation
+        ctx.translate(this.x, this.y - (this.visualYOffset || 0));
+        ctx.rotate(this.angle || 0);
         ctx.fillStyle = '#0af';
-        ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+        ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+        ctx.restore();
     };
 
     window.Player = Player;
