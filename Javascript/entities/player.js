@@ -50,6 +50,12 @@
         this.jumpSpinDuration = 1.5; // seconds for one full 360 if jump completes on time
         this.jumpSpinSpeed = (2 * Math.PI) / this.jumpSpinDuration; // radians per second
         this.jumpSpinActive = false; // set true when a jump starts
+        // double-jump dash
+        this.doubleJumpUsed = false; // whether the extra jump/dash has been consumed
+        this.dashSpeed = 520; // horizontal dash velocity for double-jump
+        this.dashDuration = 0.18; // how long the dash lasts
+        this.dashTimer = 0;
+        this.dashVx = 0;
         // ground stepping / small-hop visual
         // tuned for slightly slower step rolls
         this.stepInterval = 0.24; // seconds between steps while running (was 0.18)
@@ -60,6 +66,11 @@
         this.stepAnimRate = 0; // angular velocity for current step
         this.hopHeight = 6; // visual hop pixels
         this.visualYOffset = 0; // rendered vertical offset for hop
+        // neon trail
+        this.trail = [];
+        this.trailMax = 40;
+        this.trailSpawnInterval = 0.005; // seconds between trail samples
+        this.trailTimer = 0;
     }
 
     // env: either bounds {width,height} or a Level instance with isSolidAt(px,py) and tileSize
@@ -82,11 +93,30 @@
         if (this.jumpBufferTimer > 0) this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - dt);
         if (jumpEdge && !this.onGround) this.jumpBufferTimer = this.jumpBufferTime;
 
+        // decrement dash timer
+        if (this.dashTimer > 0) {
+            this.dashTimer = Math.max(0, this.dashTimer - dt);
+            if (this.dashTimer <= 0) {
+                this.dashVx = 0;
+            }
+        }
+
+        // update trail timer and sample positions
+        this.trailTimer -= dt;
+        if (this.trailTimer <= 0) {
+            this.trailTimer = this.trailSpawnInterval;
+            this.trail.push({ x: this.x, y: this.y - (this.visualYOffset || 0), angle: this.angle, size: this.size });
+            if (this.trail.length > this.trailMax) this.trail.shift();
+        }
+
         // horizontal velocity
         if (this.wallJumpTimer > 0) {
             // forced vx already stored in this.vx from wall-jump
             this.wallJumpTimer -= dt;
             if (this.wallJumpTimer <= 0) this.vx = 0;
+        } else if (this.dashTimer > 0) {
+            // keep dash velocity while active
+            this.vx = this.dashVx;
         } else {
             this.vx = dir * this.speed;
         }
@@ -112,13 +142,17 @@
                 touchingRight = true;
                 this.vx = 0;
             }
-            // if we hit a wall, ensure a flat side is aligned with it and stop jump-spin
+            // if we hit a wall, ensure a flat side is aligned with it and stop jump-spin/dash
             if (touchingLeft || touchingRight) {
                 var qWall = Math.round(this.angle / (Math.PI / 2));
                 this.angle = qWall * (Math.PI / 2);
                 // cancel jump-spin if we hit a wall mid-air
                 this.jumpSpinActive = false;
                 this.angVel = 0;
+                // cancel any active dash and mark double-jump consumed
+                this.dashTimer = 0;
+                this.dashVx = 0;
+                this.doubleJumpUsed = true;
             }
         }
 
@@ -161,6 +195,10 @@
                 // stop any jump-spin when we land
                 this.jumpSpinActive = false;
                 this.angVel = 0;
+                // reset double-jump/dash availability and cancel any dash
+                this.doubleJumpUsed = false;
+                this.dashTimer = 0;
+                this.dashVx = 0;
                 // if we just landed this frame, snap angle to nearest quarter to ensure flat side
                 if (!wasGround) {
                     var quarter = Math.round(this.angle / (Math.PI / 2));
@@ -213,11 +251,26 @@
                     this.onGround = false;
                     this.coyoteTimer = 0; // consume coyote
                     this.jumpBufferTimer = 0;
+                    // reset double-jump availability for this jump (allow one extra dash)
+                    this.doubleJumpUsed = false;
                     // start jump-spin on normal jump
                     this.jumpSpinActive = true;
                     var spinSign2 = (this.vx >= 0) ? 1 : -1;
                     this.angVel = spinSign2 * this.jumpSpinSpeed;
                     // start leaving ground: nothing special (no big flip)
+                } else if (jumpEdge && !canJumpNow && !this.doubleJumpUsed) {
+                    // perform double-jump dash in direction pressed
+                    var dashDir = dir;
+                    if (dashDir === 0) dashDir = (this.vx >= 0) ? 1 : -1;
+                    this.dashTimer = this.dashDuration;
+                    this.dashVx = dashDir * this.dashSpeed;
+                    this.vx = this.dashVx;
+                    // give a smaller upward boost for the double-jump
+                    this.vy = -this.jumpSpeed * 0.62;
+                    this.doubleJumpUsed = true;
+                    // start jump-spin on double jump
+                    this.jumpSpinActive = true;
+                    this.angVel = (dashDir >= 0 ? 1 : -1) * this.jumpSpinSpeed;
                 }
             }
 
@@ -284,6 +337,7 @@
                 }
             }
 
+            // trail sampling already handled above; update last key state
             this.lastJumpKeyDown = jumpKeyDown;
         } else {
             // fallback: use bounds-like object if provided
@@ -303,11 +357,19 @@
                     // cancel jump-spin if hitting a bounds wall mid-air
                     this.jumpSpinActive = false;
                     this.angVel = 0;
+                    // cancel any active dash and mark double-jump consumed
+                    this.dashTimer = 0;
+                    this.dashVx = 0;
+                    this.doubleJumpUsed = true;
                 }
 
                 var wasGroundB = this.onGround;
                 if (this.y > maxY) {
                     this.y = maxY; this.vy = 0; this.onGround = true; this.coyoteTimer = this.coyoteTime;
+                    // reset double-jump/dash availability and cancel any dash
+                    this.doubleJumpUsed = false;
+                    this.dashTimer = 0;
+                    this.dashVx = 0;
                     if (!wasGroundB) {
                         this.flipRate += this.flipOnLandAngle / this.flipDuration;
                         this.flipTimer = Math.max(this.flipTimer, this.flipDuration);
@@ -349,6 +411,8 @@
                         this.onGround = false;
                         this.coyoteTimer = 0;
                         this.jumpBufferTimer = 0;
+                        // reset double-jump availability for this jump
+                        this.doubleJumpUsed = false;
                         // flip on jump (bounds)
                         this.flipRate += this.flipOnJumpAngle / this.flipDuration;
                         this.flipTimer = Math.max(this.flipTimer, this.flipDuration);
@@ -356,6 +420,16 @@
                         this.jumpSpinActive = true;
                         var spinSignB = (this.vx >= 0) ? 1 : -1;
                         this.angVel = spinSignB * this.jumpSpinSpeed;
+                    } else if (jumpEdge && !canJumpNow2 && !this.doubleJumpUsed) {
+                        // bounds double-jump dash
+                        var dashDirB = (input.isDown('ArrowLeft') || input.isDown('KeyA')) ? -1 : ((input.isDown('ArrowRight') || input.isDown('KeyD')) ? 1 : (this.vx >= 0 ? 1 : -1));
+                        this.dashTimer = this.dashDuration;
+                        this.dashVx = dashDirB * this.dashSpeed;
+                        this.vx = this.dashVx;
+                        this.vy = -this.jumpSpeed * 0.62;
+                        this.doubleJumpUsed = true;
+                        this.jumpSpinActive = true;
+                        this.angVel = (dashDirB >= 0 ? 1 : -1) * this.jumpSpinSpeed;
                     }
                 }
 
@@ -396,12 +470,72 @@
 
     Player.prototype.draw = function (ctx) {
         if (!ctx) return;
+        // draw neon trail as smooth glowing lines (older entries first)
+        if (this.trail && this.trail.length > 1) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (var i = 0; i < this.trail.length - 1; i++) {
+                var a = this.trail[i];
+                var b = this.trail[i + 1];
+                // alpha and width ramp (older -> smaller/dimmer)
+                var t = (i + 1) / this.trail.length;
+                // reduced base opacity so trail is weaker
+                var alpha = Math.min(1, Math.pow(t, 0.9) * 0.7);
+                // gradient from solid cyan to transparent along the segment
+                var grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+                grad.addColorStop(0, 'rgba(0,255,220,' + (Math.min(1, alpha * 0.75)) + ')');
+                grad.addColorStop(1, 'rgba(0,255,220,0)');
+                ctx.strokeStyle = grad;
+                // weaker blur and shadow alpha for less intense glow
+                ctx.shadowBlur = 12 * t;
+                ctx.shadowColor = 'rgba(0,230,210,' + (0.55 * t) + ')';
+                ctx.lineWidth = Math.max(1, a.size * (0.4 + 0.6 * t));
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        // draw neon square with layered halo and inset core stroke
         ctx.save();
-        // apply visual Y offset for small hop during step animation
         ctx.translate(this.x, this.y - (this.visualYOffset || 0));
         ctx.rotate(this.angle || 0);
-        ctx.fillStyle = '#0af';
-        ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+
+        var hs = this.size / 2;
+        // dark center so neon stroke stands out
+        ctx.fillStyle = '#041917';
+        ctx.fillRect(-hs, -hs, this.size, this.size);
+
+        // outer soft halo removed (kept inner neon core only)
+
+        // bright neon core stroke
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        var coreGrad = ctx.createLinearGradient(-hs, -hs, hs, hs);
+        coreGrad.addColorStop(0, 'rgba(0,220,200,1)');
+        coreGrad.addColorStop(0.5, 'rgba(0,255,240,1)');
+        coreGrad.addColorStop(1, 'rgba(0,220,200,1)');
+        ctx.lineWidth = Math.max(2, this.size * 0.16);
+        ctx.lineJoin = 'miter';
+        ctx.strokeStyle = coreGrad;
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = 'rgba(0,255,240,0.95)';
+        var insetCore = ctx.lineWidth / 2;
+        ctx.strokeRect(-hs + insetCore, -hs + insetCore, this.size - insetCore * 2, this.size - insetCore * 2);
+        ctx.restore();
+
+        // thin inner crisp inset
+        ctx.save();
+        ctx.lineWidth = Math.max(1, this.size * 0.06);
+        ctx.strokeStyle = 'rgba(180,255,240,0.95)';
+        ctx.shadowBlur = 0;
+        ctx.strokeRect(-hs + 1.5, -hs + 1.5, this.size - 3, this.size - 3);
+        ctx.restore();
+
         ctx.restore();
     };
 

@@ -1,4 +1,4 @@
-// Title screen + level selection
+// Title screen + level selection (moved to UI folder)
 (function () {
     'use strict';
 
@@ -124,31 +124,55 @@
             try { window._currentGame.pause(); } catch (err) { console.error('pause error', err); }
             if (typeof window._currentGame.resume === 'function') resumeCb = window._currentGame.resume.bind(window._currentGame);
         }
-        var levels = window._levelsManifest || [
-            { name: 'Level 1', file: 'assets/levels/level1.json' },
-            { name: 'Level 2', file: 'assets/levels/level2.json' }
-        ];
-        showOverlay(levels, resumeCb);
-    };
-
-    document.addEventListener('DOMContentLoaded', function () {
-        // load manifest for future showTitleScreen calls
+        // use shared LevelsManifest loader
+        if (window.LevelsManifest && typeof window.LevelsManifest.getLevels === 'function') {
+            window.LevelsManifest.getLevels().then(function (data) {
+                window._levelsManifest = data;
+                showOverlay(data, resumeCb);
+            }).catch(function (err) {
+                console.error('Failed to load levels.json via LevelsManifest:', err);
+                showOverlay([], resumeCb);
+            });
+            return;
+        }
+        // fallback to fetch if loader not available
         fetch('assets/levels/levels.json').then(function (r) {
             if (!r.ok) throw new Error('manifest fetch failed');
             return r.json();
         }).then(function (data) {
             window._levelsManifest = data;
-            // show title overlay on first load
-            showOverlay(data);
-        }).catch(function () {
-            // fallback list
-            var fallback = [
-                { name: 'Level 1', file: 'assets/levels/level1.json' },
-                { name: 'Level 2', file: 'assets/levels/level2.json' }
-            ];
-            window._levelsManifest = fallback;
-            showOverlay(fallback);
+            showOverlay(data, resumeCb);
+        }).catch(function (err) {
+            console.error('Failed to load levels.json:', err);
+            showOverlay([], resumeCb);
         });
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // pre-load manifest for the title screen on first load; if it fails, still allow manual open later
+        // preload via shared loader when available
+        if (window.LevelsManifest && typeof window.LevelsManifest.getLevels === 'function') {
+            window.LevelsManifest.getLevels().then(function (data) {
+                window._levelsManifest = data;
+                showOverlay(data);
+            }).catch(function (err) {
+                console.error('Failed to load levels.json on startup via LevelsManifest:', err);
+                window._levelsManifest = null;
+                showOverlay([]);
+            });
+        } else {
+            fetch('assets/levels/levels.json').then(function (r) {
+                if (!r.ok) throw new Error('manifest fetch failed');
+                return r.json();
+            }).then(function (data) {
+                window._levelsManifest = data;
+                showOverlay(data);
+            }).catch(function (err) {
+                console.error('Failed to load levels.json on startup:', err);
+                window._levelsManifest = null;
+                showOverlay([]);
+            });
+        }
     });
 
     // global handler: if user presses Escape while playing, open title screen

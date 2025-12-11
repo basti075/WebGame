@@ -6,5 +6,9 @@
     {
         "name": "Level 2",
         "file": "assets/levels/level2.json"
+    },
+    {
+        "name": "Level 3",
+        "file": "assets/levels/level3.json"
     }
 ]

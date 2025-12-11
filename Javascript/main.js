@@ -12,6 +12,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     var state = { t: 0 };
+    // 10-second game timer (seconds)
+    var TIMER_DURATION = 10;
+    // performance info
+    state.fps = 0;
     var level = null;
     var player = null;
 
@@ -29,10 +33,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function update(dt) {
             state.t += dt;
+            // update smoothed FPS
+            var inst = dt > 0 ? 1 / dt : 0;
+            state.fps = state.fps ? (state.fps * 0.9 + inst * 0.1) : inst;
             if (window.Input) {
                 if (typeof window.Input.update === 'function') window.Input.update();
                 // pass level to player so it can use tile collisions
                 player.update(dt, window.Input, level || canvasSize);
+                // decrement game timer when running
+                if (typeof state.timerRunning === 'undefined') state.timerRunning = true;
+                if (state.timerRunning && typeof state.timer === 'number') {
+                    state.timer = Math.max(0, state.timer - dt);
+                    if (state.timer <= 0) {
+                        state.timerRunning = false;
+                        // show win screen
+                        showWinScreen();
+                    }
+                }
             }
         }
 
@@ -46,22 +63,65 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // draw player
             if (player && typeof player.draw === 'function') player.draw(ctx);
+
+            // draw FPS (top-right)
+            if (typeof state.fps === 'number' && !isNaN(state.fps)) {
+                var fpsText = Math.round(state.fps) + ' FPS';
+                ctx.save();
+                ctx.font = '14px monospace';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                // background box for readability
+                var padding = 6;
+                var metrics = ctx.measureText(fpsText);
+                var w = Math.max(60, metrics.width + padding * 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(canvasSize.width - w - 8, 8, w, 22);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(fpsText, canvasSize.width - 8, 10);
+                ctx.restore();
+            }
+
+            // draw countdown timer (top-center)
+            if (typeof state.timer === 'number') {
+                ctx.save();
+                ctx.font = '20px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                var txt = Math.ceil(state.timer) + 's';
+                var w = ctx.measureText(txt).width + 16;
+                var x = canvasSize.width / 2 - w / 2;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(x, 8, w, 28);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(txt, canvasSize.width / 2, 12);
+                ctx.restore();
+            }
         }
+
+        // initialize timer for this run
+        state.timer = TIMER_DURATION;
+        state.timerRunning = true;
 
         // expose pause/resume helpers for the current running game
         window._currentGame = {
             update: update,
             render: render,
             pause: function () {
+                // pause game loop if possible
                 if (window.GameLoop && typeof window.GameLoop.stop === 'function') {
                     try { window.GameLoop.stop(); } catch (e) { }
                 }
-                // if fallback loop was used, we can't control it easily — rely on GameLoop when available
+                // stop countdown timer
+                state.timerRunning = false;
             },
             resume: function () {
+                // resume game loop if possible
                 if (window.GameLoop && typeof window.GameLoop.start === 'function') {
                     window.GameLoop.start({ update: update, render: render });
                 }
+                // resume countdown timer
+                state.timerRunning = true;
             }
         };
 
@@ -76,6 +136,8 @@ document.addEventListener('DOMContentLoaded', function () {
             requestAnimationFrame(fallback);
         }
     }
+
+    // win screen is provided by UI/winScreen.js; call window.showWinScreen when needed
 
 
     // expose starter for title screen or external callers

@@ -85,9 +85,8 @@
 
         if (!ctx) return;
 
-        // background
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, this.widthPx, this.heightPx);
+        // clear the level drawing area so the canvas background (CSS) shows through
+        ctx.clearRect(0, 0, this.widthPx, this.heightPx);
 
         // tiles
         var ts = this.tileSize;
