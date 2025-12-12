@@ -52,7 +52,8 @@
         } else {
             levels.forEach(function (p) {
                 var btn = document.createElement('button');
-                btn.textContent = (p.name) ? (p.name + ' (' + (p.file || p.path || '') + ')') : (p.file || p.path || p);
+                // show only the human-friendly level name if available
+                btn.textContent = (p && p.name) ? p.name : (p.file || p.path || p);
                 btn.style.padding = '8px 12px';
                 btn.style.border = 'none';
                 btn.style.borderRadius = '4px';
@@ -61,7 +62,8 @@
                     var path = p.file || p.path || p;
                     if (window.LevelManager && typeof window.LevelManager.load === 'function') {
                         LevelManager.load(path).then(function (lvl) {
-                            document.body.removeChild(overlay);
+                            if (document.body.contains(overlay)) document.body.removeChild(overlay);
+                            if (overlay.__win_onKey) { window.removeEventListener('keydown', overlay.__win_onKey); overlay.__win_onKey = null; }
                             if (typeof window.startWithLevel === 'function') window.startWithLevel(lvl);
                         }).catch(function (err) {
                             alert('Failed to load ' + path + ': ' + err);
@@ -82,7 +84,8 @@
         restart.style.borderRadius = '4px';
         restart.style.cursor = 'pointer';
         restart.onclick = function () {
-            document.body.removeChild(overlay);
+            if (document.body.contains(overlay)) document.body.removeChild(overlay);
+            if (overlay.__win_onKey) { window.removeEventListener('keydown', overlay.__win_onKey); overlay.__win_onKey = null; }
             try { if (typeof window.startWithLevel === 'function' && window._currentLevel) startWithLevel(window._currentLevel); else location.reload(); } catch (e) { location.reload(); }
         };
 
@@ -96,6 +99,12 @@
         opts = opts || {};
         var overlay = createOverlay();
         var card = createCard();
+        // pause current game if available and capture resume callback
+        var resumeCb = null;
+        if (window._currentGame && typeof window._currentGame.pause === 'function') {
+            try { window._currentGame.pause(); } catch (e) { console.error('pause error', e); }
+            if (typeof window._currentGame.resume === 'function') resumeCb = window._currentGame.resume.bind(window._currentGame);
+        }
         if (opts.levels && Array.isArray(opts.levels)) {
             renderOverlayWithLevels(overlay, card, opts.levels, opts);
             return;
@@ -104,6 +113,19 @@
         if (window.LevelsManifest && typeof window.LevelsManifest.getLevels === 'function') {
             window.LevelsManifest.getLevels().then(function (data) {
                 renderOverlayWithLevels(overlay, card, data, opts);
+                // allow closing overlay with Escape and resume if no selection made
+                (function () {
+                    function onKey(e) {
+                        if (e.key === 'Escape') {
+                            if (document.body.contains(overlay)) document.body.removeChild(overlay);
+                            window.removeEventListener('keydown', onKey);
+                            overlay.__win_onKey = null;
+                            if (typeof resumeCb === 'function') resumeCb();
+                        }
+                    }
+                    overlay.__win_onKey = onKey;
+                    window.addEventListener('keydown', onKey);
+                })();
             }).catch(function (err) {
                 console.error('Failed to load levels.json for win screen via LevelsManifest:', err);
                 renderOverlayWithLevels(overlay, card, [], opts);
@@ -114,6 +136,18 @@
                 return r.json();
             }).then(function (data) {
                 renderOverlayWithLevels(overlay, card, data, opts);
+                (function () {
+                    function onKey(e) {
+                        if (e.key === 'Escape') {
+                            if (document.body.contains(overlay)) document.body.removeChild(overlay);
+                            window.removeEventListener('keydown', onKey);
+                            overlay.__win_onKey = null;
+                            if (typeof resumeCb === 'function') resumeCb();
+                        }
+                    }
+                    overlay.__win_onKey = onKey;
+                    window.addEventListener('keydown', onKey);
+                })();
             }).catch(function (err) {
                 console.error('Failed to load levels.json for win screen:', err);
                 renderOverlayWithLevels(overlay, card, [], opts);
