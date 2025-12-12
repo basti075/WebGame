@@ -78,6 +78,12 @@
                     var pcol = (player && player.trail && player.trail.col) ? player.trail.col : '0,255,240';
                     if (typeof window.spawnParticleBurst === 'function') window.spawnParticleBurst(player.x, player.y, { color: pcol });
                 } catch (e) { console.warn('spawnParticleBurst failed', e); }
+                // play player explosion sound if available
+                try {
+                    if (window.AudioManager && typeof window.AudioManager.play === 'function') {
+                        window.AudioManager.play('player_explode');
+                    }
+                } catch (e) { console.warn('AudioManager.play failed', e); }
                 return { killed: true };
             }
         }

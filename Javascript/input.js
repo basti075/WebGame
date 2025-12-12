@@ -25,9 +25,7 @@
 
     window.Input = {
         isDown: function (code) { return !!keys[code] || !!gpKeys[code]; },
-        // optional: subscribe to key events
         onKey: function (cb) { window.addEventListener('keydown', cb); window.addEventListener('keyup', cb); },
-        // poll gamepads and update mapping; call every frame
         update: function () { updateGamepadState(); }
     };
 

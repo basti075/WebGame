@@ -1,4 +1,4 @@
-/* Level loader for human-editable row-of-strings JSON.
+/* AI Generated Level Loader
    Expected JSON shape:
    {
      "tileSize": 12,

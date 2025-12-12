@@ -28,6 +28,18 @@ document.addEventListener('DOMContentLoaded', function () {
             var sp = level.getObjects('playerSpawn');
             if (sp && sp.length) spawn = sp[0];
         }
+        // Load default player explosion SFX (optional file; replace path if needed)
+        try {
+            if (window.AudioManager && typeof window.AudioManager.load === 'function') {
+                window.AudioManager.load('player_explode', 'assets/audio/player_explode.wav');
+                window.AudioManager.load('enemy_explode', 'assets/audio/enemy_explode.wav');
+                // countdown tick and final tick sounds
+                window.AudioManager.load('countdown', 'assets/audio/countdown.wav');
+                window.AudioManager.load('final', 'assets/audio/final.wav');
+                // win SFX
+                window.AudioManager.load('win', 'assets/audio/win.wav');
+            }
+        } catch (e) { console.warn('AudioManager.load failed', e); }
         var startX = spawn ? spawn.x : (canvasSize.width / 2);
         var startY = spawn ? spawn.y : (canvasSize.height / 2);
         player = new (window.Player || function () { })(startX, startY, 32, 220);

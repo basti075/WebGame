@@ -172,6 +172,12 @@
                 window.spawnParticleBurst(this.x, this.y, { count: count, color: this.colorRGB, life: this.explosionTime });
             }
         } catch (e) { console.warn('spawnParticleBurst failed', e); }
+        // play enemy explosion SFX if available
+        try {
+            if (window.AudioManager && typeof window.AudioManager.play === 'function') {
+                window.AudioManager.play('enemy_explode');
+            }
+        } catch (e) { console.warn('AudioManager.play failed (enemy_explode)', e); }
         if (typeof window.onEnemyExplode === 'function') {
             try { window.onEnemyExplode(this); } catch (e) { console.error(e); }
         }

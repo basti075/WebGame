@@ -29,12 +29,30 @@
                 state._timerFlashTime = 0.18;
                 state._timerFlashTotal = 0.18;
             }
+            // play tick sounds when the displayed second changes
+            if (newCeil < prevCeil) {
+                try {
+                    if (window.AudioManager && typeof window.AudioManager.play === 'function') {
+                        if (newCeil > 3) {
+                            window.AudioManager.play('countdown');
+                        } else if (newCeil > 0 && newCeil <= 3) {
+                            window.AudioManager.play('final');
+                        }
+                    }
+                } catch (e) { console.warn('GameTimer sound play failed', e); }
+            }
             if (prev > 0 && state.timer === 0) {
                 state._timerFlashColor = 'green';
                 state._timerFlashTime = 0.6;
                 state._timerFlashTotal = 0.6;
                 state.timerRunning = false;
                 try { if (typeof window.showWinScreen === 'function') window.showWinScreen(); } catch (e) { console.error('showWinScreen error', e); }
+                // play win sound if available
+                try {
+                    if (window.AudioManager && typeof window.AudioManager.play === 'function') {
+                        window.AudioManager.play('win');
+                    }
+                } catch (e) { console.warn('GameTimer win sound play failed', e); }
             }
             if (state._timerFlashTime > 0) state._timerFlashTime = Math.max(0, state._timerFlashTime - dt);
         }

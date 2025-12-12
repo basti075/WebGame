@@ -9,11 +9,10 @@
     function loop(time) {
         if (!running) return;
         var frameMs = time - lastTime;
-        if (frameMs > 250) frameMs = 250; // avoid spiral after tab switch
+        if (frameMs > 250) frameMs = 250;
         lastTime = time;
         accumulator += frameMs;
         try {
-            // run fixed-step updates at 1/60s
             while (accumulator >= targetMs) {
                 if (typeof callbacks.update === 'function') callbacks.update(targetMs / 1000);
                 accumulator -= targetMs;
