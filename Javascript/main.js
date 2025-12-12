@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (window.Input) {
                 if (typeof window.Input.update === 'function') window.Input.update();
                 // pass level to player so it can use tile collisions
-                player.update(dt, window.Input, level || canvasSize);
+                if (player && typeof player.update === 'function') player.update(dt, window.Input, level || canvasSize);
                 // update enemies
                 for (var i = enemies.length - 1; i >= 0; i--) {
                     var e = enemies[i];
@@ -49,6 +49,26 @@ document.addEventListener('DOMContentLoaded', function () {
                         enemies.splice(i, 1);
                     }
                 }
+                // update global particle system (if present)
+                if (window.ParticleSystem && typeof window.ParticleSystem.update === 'function') {
+                    window.ParticleSystem.update(dt);
+                }
+                // check explosions vs player (delegated to PlayerCollision)
+                if (player && window.PlayerCollision && typeof window.PlayerCollision.checkExplosionCollision === 'function') {
+                    try {
+                        var cres = window.PlayerCollision.checkExplosionCollision(player, enemies);
+                        if (cres && cres.killed) {
+                            player = null;
+                            if (!window._pendingLoseTimeout) {
+                                window._pendingLoseTimeout = setTimeout(function () {
+                                    try { if (window._currentGame && typeof window._currentGame.pause === 'function') window._currentGame.pause(); } catch (e) { }
+                                    try { if (typeof window.showLoseScreen === 'function') window.showLoseScreen(); } catch (e) { }
+                                    window._pendingLoseTimeout = null;
+                                }, 1000);
+                            }
+                        }
+                    } catch (e) { console.error('PlayerCollision.checkExplosionCollision error', e); }
+                }
                 // delegate timer update to GameTimer module
                 window.GameTimer.update(state, dt);
             }
@@ -56,20 +76,37 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function render() {
             // draw level if available
-            if (level && typeof level.draw === 'function') level.draw(ctx);
-            else {
-                if (window.Renderer && typeof Renderer.clear === 'function') Renderer.clear('#111');
-                else ctx.fillStyle = '#111', ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
+            try {
+                if (level && typeof level.draw === 'function') {
+                    level.draw(ctx);
+                } else {
+                    if (window.Renderer && typeof Renderer.clear === 'function') Renderer.clear('#111');
+                    else ctx.fillStyle = '#111', ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
+                }
+            } catch (e) {
+                console.error('Level draw error, clearing canvas as fallback', e);
+                ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
             }
 
             // draw player
-            if (player && typeof player.draw === 'function') player.draw(ctx);
+            try {
+                if (player && typeof player.draw === 'function') player.draw(ctx);
+            } catch (e) { console.error('Player draw error', e); }
 
             // draw enemies
             for (var j = 0; j < enemies.length; j++) {
-                var en = enemies[j];
-                if (en && typeof en.draw === 'function') en.draw(ctx);
+                try {
+                    var en = enemies[j];
+                    if (en && typeof en.draw === 'function') en.draw(ctx);
+                } catch (e) { console.error('Enemy draw error at index ' + j, e); }
             }
+
+            // draw particles on top of entities
+            try {
+                if (window.ParticleSystem && typeof window.ParticleSystem.draw === 'function') {
+                    window.ParticleSystem.draw(ctx);
+                }
+            } catch (e) { console.error('ParticleSystem draw error', e); }
 
             // draw FPS (top-right)
             if (typeof state.fps === 'number' && !isNaN(state.fps)) {

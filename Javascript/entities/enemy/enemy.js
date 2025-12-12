@@ -9,6 +9,9 @@
         this.speed = typeof opts.speed === 'number' ? opts.speed : 125;
         this.chaseDuration = typeof opts.chaseDuration === 'number' ? opts.chaseDuration : 5.0;
 
+        // color for trail and particles as 'r,g,b'
+        this.colorRGB = typeof opts.colorRGB === 'string' ? opts.colorRGB : '255,60,60';
+
         this._timer = 0;
         this.state = 'chase';
         this.explosionTime = 0.6;
@@ -25,7 +28,7 @@
         if (this.state === 'dead') return;
         // lazy-create trail helper
         if (!this.trail) {
-            if (typeof window.Trail === 'function') this.trail = new window.Trail(this.trailMax, this.trailSpawnInterval, '255,60,60');
+            if (typeof window.Trail === 'function') this.trail = new window.Trail(this.trailMax, this.trailSpawnInterval, this.colorRGB);
             else this.trail = { update: function () { }, draw: function () { } };
         }
         // update trail with current position (use angle 0)
@@ -119,6 +122,15 @@
                     moveWithCollision(player.x, player.y);
                     this._recalcTimer = Math.min(this._recalcTimer, 0.10);
                 }
+                // check collision with player (simple circle overlap)
+                if (player && typeof player.x === 'number' && typeof player.y === 'number' && typeof player.size === 'number') {
+                    var ddxC = player.x - this.x; var ddyC = player.y - this.y;
+                    var distC = Math.sqrt(ddxC * ddxC + ddyC * ddyC) || 1;
+                    var minDist = (player.size + this.size) * 0.5;
+                    if (distC <= minDist) {
+                        this.state = 'explode'; this._explosionTimer = 0; this.onExplode();
+                    }
+                }
             } else if (player && typeof player.x === 'number' && typeof player.y === 'number') {
                 var ddx = player.x - this.x; var ddy = player.y - this.y; var dd = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
                 this.x += (ddx / dd) * this.speed * dt; this.y += (ddy / dd) * this.speed * dt;
@@ -146,20 +158,20 @@
             ctx.fillRect(this.x - s / 2, this.y - s / 2, s, s);
             ctx.restore();
         } else if (this.state === 'explode') {
-            var t = Math.min(1, this._explosionTimer / this.explosionTime);
-            var maxR = Math.max(this.size, 48);
-            var r = 4 + t * maxR;
-            var alpha = 1 - t;
-            ctx.save();
-            ctx.beginPath();
-            ctx.fillStyle = 'rgba(255,140,0,' + (0.6 * alpha) + ')';
-            ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
+            // explosion visual removed; particles represent the explosion now
+            // keep updating timers only
         }
     };
 
     Enemy.prototype.onExplode = function () {
+        // spawn particle burst matching the enemy's color and approximate size
+        try {
+            if (typeof window.spawnParticleBurst === 'function') {
+                var maxR = Math.max(this.size || 24, 48);
+                var count = Math.max(12, Math.round(maxR * 0.6));
+                window.spawnParticleBurst(this.x, this.y, { count: count, color: this.colorRGB, life: this.explosionTime });
+            }
+        } catch (e) { console.warn('spawnParticleBurst failed', e); }
         if (typeof window.onEnemyExplode === 'function') {
             try { window.onEnemyExplode(this); } catch (e) { console.error(e); }
         }

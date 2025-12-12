@@ -60,4 +60,31 @@
         tileIndexX: tileIndexX,
         tileIndexY: tileIndexY
     };
+
+    // Player-specific collision helpers
+    function checkExplosionCollision(player, enemies) {
+        if (!player || !enemies || !Array.isArray(enemies)) return null;
+        for (var ei = enemies.length - 1; ei >= 0; ei--) {
+            var en = enemies[ei];
+            if (!en || en.state !== 'explode') continue;
+            var t = Math.min(1, en._explosionTimer / (en.explosionTime || 0.0001));
+            var maxR = Math.max(en.size || 0, 48);
+            var r = 4 + t * maxR;
+            var dx = player.x - en.x; var dy = player.y - en.y;
+            var d = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+            var hitDist = r + (player.size || 0) * 0.5;
+            if (d <= hitDist) {
+                try {
+                    var pcol = (player && player.trail && player.trail.col) ? player.trail.col : '0,255,240';
+                    if (typeof window.spawnParticleBurst === 'function') window.spawnParticleBurst(player.x, player.y, { color: pcol });
+                } catch (e) { console.warn('spawnParticleBurst failed', e); }
+                return { killed: true };
+            }
+        }
+        return null;
+    }
+
+    window.PlayerCollision = {
+        checkExplosionCollision: checkExplosionCollision
+    };
 })();
