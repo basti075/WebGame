@@ -13,6 +13,8 @@
         overlay.style.alignItems = 'center';
         overlay.style.justifyContent = 'center';
         overlay.style.background = 'rgba(0,0,0,0.7)';
+        overlay.style.transition = 'opacity 280ms cubic-bezier(.2,.9,.2,1)';
+        overlay.style.opacity = '0';
         overlay.style.zIndex = '9999';
         return overlay;
     }
@@ -25,6 +27,9 @@
         card.style.color = '#fff';
         card.style.minWidth = '320px';
         card.style.textAlign = 'center';
+        card.style.transition = 'transform 420ms cubic-bezier(.2,.9,.2,1), opacity 360ms ease-out';
+        card.style.transform = 'scale(0.6) translateY(18px)';
+        card.style.opacity = '0';
         return card;
     }
 
@@ -93,6 +98,14 @@
         card.appendChild(restart);
         overlay.appendChild(card);
         document.body.appendChild(overlay);
+        // trigger pop-in animation from center
+        // force reflow then set final styles
+        /* eslint-disable no-unused-expressions */
+        overlay.offsetWidth;
+        /* eslint-enable no-unused-expressions */
+        overlay.style.opacity = '1';
+        card.style.transform = 'scale(1) translateY(0)';
+        card.style.opacity = '1';
     }
 
     function showWinScreen(opts) {

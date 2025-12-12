@@ -54,6 +54,26 @@
       "type": "playerSpawn",
       "x": 126,
       "y": 534
+    },
+    {
+      "type": "enemySpawn",
+      "x": 174,
+      "y": 66
+    },
+    {
+      "type": "enemySpawn",
+      "x": 270,
+      "y": 102
+    },
+    {
+      "type": "enemySpawn",
+      "x": 906,
+      "y": 66
+    },
+    {
+      "type": "enemySpawn",
+      "x": 882,
+      "y": 126
     }
   ]
 }

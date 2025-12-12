@@ -86,6 +86,7 @@
                 <select id="objectType" class="small">
                     <option value="playerSpawn">playerSpawn</option>
                     <option value="goal">goal</option>
+                    <option value="enemySpawn">enemySpawn</option>
                 </select>
             </div>
 
@@ -168,6 +169,7 @@
                 for (const o of objects) {
                     if (o.type === 'playerSpawn') { ctx.fillStyle = '#0f8'; ctx.fillRect(o.x - 4, o.y - 4, 8, 8); }
                     else if (o.type === 'goal') { ctx.fillStyle = '#ff0'; ctx.fillRect(o.x - 6, o.y - 6, 12, 12); }
+                    else if (o.type === 'enemySpawn') { ctx.fillStyle = '#c33'; ctx.fillRect(o.x - 6, o.y - 6, 12, 12); }
                     else { ctx.fillStyle = '#f0f'; ctx.fillRect(o.x - 3, o.y - 3, 6, 6); }
                 }
             }
@@ -186,8 +188,11 @@
                     // place object at pixel center
                     const ox = x * tileSize + Math.floor(tileSize / 2);
                     const oy = y * tileSize + Math.floor(tileSize / 2);
-                    // remove same-type close objects
-                    objects = objects.filter(o => !(o.type === objectType.value));
+                    // For singletons (playerSpawn) remove existing before placing.
+                    if (objectType.value === 'playerSpawn') {
+                        objects = objects.filter(o => o.type !== 'playerSpawn');
+                    }
+                    // allow multiple enemySpawn entries
                     objects.push({ type: objectType.value, x: ox, y: oy });
                 } else {
                     // paint

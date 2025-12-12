@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', function () {
     state.fps = 0;
     var level = null;
     var player = null;
+    var enemies = [];
 
     function startWithLevel(lvl) {
         level = lvl;
@@ -40,16 +41,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (typeof window.Input.update === 'function') window.Input.update();
                 // pass level to player so it can use tile collisions
                 player.update(dt, window.Input, level || canvasSize);
-                // decrement game timer when running
-                if (typeof state.timerRunning === 'undefined') state.timerRunning = true;
-                if (state.timerRunning && typeof state.timer === 'number') {
-                    state.timer = Math.max(0, state.timer - dt);
-                    if (state.timer <= 0) {
-                        state.timerRunning = false;
-                        // show win screen
-                        showWinScreen();
+                // update enemies
+                for (var i = enemies.length - 1; i >= 0; i--) {
+                    var e = enemies[i];
+                    if (e && typeof e.update === 'function') e.update(dt, player, level || canvasSize);
+                    if (!e || !e.isAlive || !e.isAlive()) {
+                        enemies.splice(i, 1);
                     }
                 }
+                // delegate timer update to GameTimer module
+                window.GameTimer.update(state, dt);
             }
         }
 
@@ -63,6 +64,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
             // draw player
             if (player && typeof player.draw === 'function') player.draw(ctx);
+
+            // draw enemies
+            for (var j = 0; j < enemies.length; j++) {
+                var en = enemies[j];
+                if (en && typeof en.draw === 'function') en.draw(ctx);
+            }
 
             // draw FPS (top-right)
             if (typeof state.fps === 'number' && !isNaN(state.fps)) {
@@ -82,26 +89,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 ctx.restore();
             }
 
-            // draw countdown timer (top-center)
-            if (typeof state.timer === 'number') {
-                ctx.save();
-                ctx.font = '20px monospace';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                var txt = Math.ceil(state.timer) + 's';
-                var w = ctx.measureText(txt).width + 16;
-                var x = canvasSize.width / 2 - w / 2;
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(x, 8, w, 28);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(txt, canvasSize.width / 2, 12);
-                ctx.restore();
-            }
+            // draw countdown timer via GameTimer
+            window.GameTimer.render(state, ctx, canvasSize);
         }
 
-        // initialize timer for this run
-        state.timer = TIMER_DURATION;
-        state.timerRunning = true;
+        // initialize timer for this run via GameTimer
+        window.GameTimer.init(state, TIMER_DURATION);
+
+        // spawn enemies from level object definitions
+        enemies = [];
+        if (level && typeof level.getObjects === 'function') {
+            var spawns = level.getObjects('enemySpawn');
+            if (Array.isArray(spawns)) {
+                for (var si = 0; si < spawns.length; si++) {
+                    var s = spawns[si];
+                    if (s && typeof s.x === 'number' && typeof s.y === 'number') {
+                        enemies.push(new window.Enemy({ x: s.x, y: s.y }));
+                    }
+                }
+            }
+        }
 
         // expose pause/resume helpers for the current running game
         window._currentGame = {
@@ -112,16 +119,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (window.GameLoop && typeof window.GameLoop.stop === 'function') {
                     try { window.GameLoop.stop(); } catch (e) { }
                 }
-                // stop countdown timer
-                state.timerRunning = false;
+                // pause countdown via GameTimer
+                if (window.GameTimer && typeof window.GameTimer.pause === 'function') window.GameTimer.pause(state);
             },
             resume: function () {
                 // resume game loop if possible
                 if (window.GameLoop && typeof window.GameLoop.start === 'function') {
                     window.GameLoop.start({ update: update, render: render });
                 }
-                // resume countdown timer
-                state.timerRunning = true;
+                // resume countdown via GameTimer
+                if (window.GameTimer && typeof window.GameTimer.resume === 'function') window.GameTimer.resume(state);
             }
         };
 
