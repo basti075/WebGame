@@ -68,8 +68,8 @@
         this.visualYOffset = 0; // rendered vertical offset for hop
         // neon trail (extracted to reusable Trail helper)
         this.trail = null; // lazily created if Trail available
-        this.trailMax = 40;
-        this.trailSpawnInterval = 0.005; // seconds between trail samples
+        this.trailMax = 20;
+        this.trailSpawnInterval = 0.001; // seconds between trail samples
 
     }
 
@@ -77,7 +77,7 @@
     Player.prototype.update = function (dt, input, env) {
         // lazy-create trail helper and update it here, then delegate the physics and collision
         if (!this.trail) {
-            if (typeof window.Trail === 'function') this.trail = new window.Trail(this.trailMax, this.trailSpawnInterval);
+            if (typeof window.Trail === 'function') this.trail = new window.Trail(this.trailMax, this.trailSpawnInterval, '0,255,240', 0.5);
             else this.trail = { update: function () { }, draw: function () { } };
         }
         this.trail.update(dt, this.x, this.y - (this.visualYOffset || 0), this.angle, this.size);

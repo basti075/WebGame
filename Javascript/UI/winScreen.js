@@ -98,14 +98,12 @@
         card.appendChild(restart);
         overlay.appendChild(card);
         document.body.appendChild(overlay);
-        // trigger pop-in animation from center
-        // force reflow then set final styles
-        /* eslint-disable no-unused-expressions */
-        overlay.offsetWidth;
-        /* eslint-enable no-unused-expressions */
-        overlay.style.opacity = '1';
-        card.style.transform = 'scale(1) translateY(0)';
-        card.style.opacity = '1';
+        // delay the pop-in so the win moment can settle
+        setTimeout(function () {
+            overlay.style.opacity = '1';
+            card.style.transform = 'scale(1) translateY(0)';
+            card.style.opacity = '1';
+        }, 1000);
     }
 
     function showWinScreen(opts) {

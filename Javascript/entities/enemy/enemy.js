@@ -16,9 +16,20 @@
         this.path = null;
         this.pathIndex = 0;
         this._recalcTimer = 0;
+        // optional neon trail (uses shared Trail helper if present)
+        this.trail = null;
+        this.trailMax = typeof opts.trailMax === 'number' ? opts.trailMax : 30;
+        this.trailSpawnInterval = typeof opts.trailSpawnInterval === 'number' ? opts.trailSpawnInterval : 0.01;
     }
     Enemy.prototype.update = function (dt, player, level) {
         if (this.state === 'dead') return;
+        // lazy-create trail helper
+        if (!this.trail) {
+            if (typeof window.Trail === 'function') this.trail = new window.Trail(this.trailMax, this.trailSpawnInterval, '255,60,60');
+            else this.trail = { update: function () { }, draw: function () { } };
+        }
+        // update trail with current position (use angle 0)
+        if (this.trail && typeof this.trail.update === 'function') this.trail.update(dt, this.x, this.y, 0, this.size);
         this._timer += dt;
         if (this.state === 'chase') {
             var haveLevel = !!(level && typeof level.isSolidAt === 'function');
@@ -125,6 +136,9 @@
     Enemy.prototype.draw = function (ctx) {
         if (!ctx) return;
         if (this.state === 'dead') return;
+        // draw trail first
+        if (this.trail && typeof this.trail.draw === 'function') this.trail.draw(ctx);
+
         if (this.state === 'chase') {
             ctx.save();
             ctx.fillStyle = '#c33';
