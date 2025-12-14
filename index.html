@@ -11,7 +11,38 @@
 </head>
 
 <body>
-    <canvas id="myCanvas" width="960" height="540"></canvas>
+    <main class="stage-layout">
+        <canvas id="myCanvas" width="960" height="540" aria-label="Main gameplay canvas"></canvas>
+        <aside class="controls-showcase" aria-label="Control reference">
+            <h1>Controls</h1>
+            <p class="controls-lede">Escape the Enemies and survive until the timer runs out!</p>
+
+            <section class="control-card keyboard-card" aria-label="Keyboard controls">
+                <h2>Keyboard / Controller</h2>
+                <div class="keyboard-graphic" aria-hidden="true">
+                    <div class="key-row">
+                        <span class="key ghost"></span>
+                        <span class="key">W</span>
+                        <span class="key ghost"></span>
+                    </div>
+                    <div class="key-row">
+                        <span class="key">A</span>
+                        <span class="key">S</span>
+                        <span class="key">D</span>
+                    </div>
+                    <div class="key-row">
+                        <span class="key space">Space</span>
+                    </div>
+                </div>
+                <ul class="control-list">
+                    <li><strong>A&D / Left Stick</strong> — Move to the left or right.</li>
+                    <li><strong>Space / A (Xbox Controller)</strong> — Press once to jump and twice to dash.</li>
+                    <li><strong>Esc</strong> — pause.</li>
+                </ul>
+            </section>
+
+        </aside>
+    </main>
 </body>
 
 </html>
