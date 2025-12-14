@@ -2,7 +2,7 @@
 
 ## Controls
 - **Keyboard:** Use `A/D` to move, `Space` once to jump, twice to dash and `Esc` to pause or leave overlays.
-- **Controller (optional):** Left stick or D-pad moves the operative; the A Button on an Xbox Controller triggers the jump and dash
+- **Controller (optional):** Left stick or D-pad moves the player; the A Button on an Xbox Controller triggers the jump and dash
 
 ## Features
 - Fast loop-based engine that drives rendering, audio, entities, particles, and the in-game timer.
