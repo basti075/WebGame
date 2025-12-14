@@ -1,27 +1,28 @@
-(function () {
-    'use strict';
+import { Level } from './level.js';
 
-    var current = null;
+let currentLevel = null;
 
-    function load(url) {
-        return fetch(url).then(function (res) {
-            if (!res.ok) throw new Error('Failed to load level: ' + url + ' (' + res.status + ')');
-            return res.json();
-        }).then(function (data) {
-            return loadFromData(data);
-        });
+export class LevelManager {
+    static async load(url) {
+        var res = await fetch(url);
+        if (!res.ok) {
+            throw new Error('Failed to load level: ' + url + ' (' + res.status + ')');
+        }
+        var data = await res.json();
+        return LevelManager.loadFromData(data);
     }
 
-    function loadFromData(data) {
-        if (!window.Level) throw new Error('Level class is not available');
-        var lvl = new window.Level(data);
-        current = lvl;
+    static loadFromData(data) {
+        var lvl = new Level(data);
+        currentLevel = lvl;
         return lvl;
     }
 
-    window.LevelManager = {
-        load: load,
-        loadFromData: loadFromData,
-        get currentLevel() { return current; }
-    };
-})();
+    static get current() {
+        return currentLevel;
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.LevelManager = LevelManager;
+}

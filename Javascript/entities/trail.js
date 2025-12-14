@@ -1,27 +1,25 @@
-(function () {
-    // Trail helper for entities (player, enemies, etc.)
-    // Usage: var t = new Trail(maxSamples, spawnInterval); t.update(dt, x,y,angle,size); t.draw(ctx);
-    function Trail(maxSamples, spawnInterval, colorRGB, alphaMul) {
+// Trail helper for entities (player, enemies, etc.)
+// Usage: const t = new Trail(maxSamples, spawnInterval); t.update(...); t.draw(...);
+export class Trail {
+    constructor(maxSamples, spawnInterval, colorRGB, alphaMul) {
         this.samples = [];
         this.maxSamples = typeof maxSamples === 'number' ? maxSamples : 40;
         this.spawnInterval = typeof spawnInterval === 'number' ? spawnInterval : 0.005;
         this.timer = 0;
-        // colorRGB expected like 'r,g,b' e.g. '0,255,220'
         this.col = typeof colorRGB === 'string' ? colorRGB : '0,255,220';
-        // overall alpha multiplier (0..1) to make trail more/less transparent
         this.alphaMul = typeof alphaMul === 'number' ? Math.max(0, Math.min(1, alphaMul)) : 1;
     }
 
-    Trail.prototype.update = function (dt, x, y, angle, size) {
+    update(dt, x, y, angle, size) {
         this.timer -= dt;
         if (this.timer <= 0) {
             this.timer = this.spawnInterval;
             this.samples.push({ x: x, y: y, angle: angle, size: size });
             if (this.samples.length > this.maxSamples) this.samples.shift();
         }
-    };
+    }
 
-    Trail.prototype.draw = function (ctx) {
+    draw(ctx) {
         if (!ctx) return;
         if (!this.samples || this.samples.length <= 1) return;
         ctx.save();
@@ -47,7 +45,9 @@
             ctx.stroke();
         }
         ctx.restore();
-    };
+    }
+}
 
+if (typeof window !== 'undefined') {
     window.Trail = Trail;
-})();
+}

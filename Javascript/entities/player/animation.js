@@ -1,9 +1,6 @@
-(function () {
-    // Animation helper for Player: step/hop and airborne spin/rolling
-    var Animation = {};
-
-    Animation.update = function (player, dt, dir) {
-        // ground behavior: stepping and rolling
+// Animation helper for Player: step/hop and airborne spin/rolling
+export class PlayerAnimation {
+    static update(player, dt, dir) {
         if (player.onGround) {
             player.stepTimer = Math.max(0, player.stepTimer - dt);
             var moving = (Math.abs(player.vx) > 1e-3) || (dir !== 0);
@@ -33,7 +30,6 @@
                 }
             }
         } else {
-            // airborne
             if (player.jumpSpinActive) {
                 player.angle += player.angVel * dt;
             } else {
@@ -46,7 +42,5 @@
                 player.angle += player.angVel * dt;
             }
         }
-    };
-
-    window.Animation = Animation;
-})();
+    }
+}

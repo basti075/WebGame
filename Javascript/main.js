@@ -1,224 +1,355 @@
-document.addEventListener('DOMContentLoaded', function () {
-    // initialize renderer (if available) and get drawing context
-    if (window.Renderer && typeof window.Renderer.init === 'function') {
-        Renderer.init('myCanvas');
-        var ctx = Renderer.getContext();
-        var canvasSize = Renderer.size();
-    } else {
-        var canvas = document.getElementById('myCanvas');
-        if (!canvas) { console.warn('Canvas #myCanvas not found.'); return; }
-        var ctx = canvas.getContext('2d');
-        var canvasSize = { width: canvas.width, height: canvas.height };
+import { GameLoop } from './gameLoop.js';
+import { Renderer } from './renderer.js';
+import { InputManager } from './input.js';
+import { LevelManager } from './levelManager.js';
+import { Player } from './entities/player/player.js';
+import { Enemy } from './entities/enemy/enemy.js';
+import { AudioService } from './audio/audio.js';
+import { particleSystem } from './entities/particles.js';
+import { checkExplosionCollision } from './entities/player/collision.js';
+import { GameTimer } from './UI/timer.js';
+import { TitleScreenController } from './UI/titleScreen.js';
+import { showWinScreen } from './UI/winScreen.js';
+import { showLoseScreen } from './UI/loseScreen.js';
+import { findPath as computeEnemyPath } from './entities/enemy/pathfinding.js';
+import { updateRuntimeServices } from './services/runtimeServices.js';
+
+var TIMER_DURATION = 10;
+
+class GameEngine {
+    constructor(canvasId) {
+        this.canvasId = canvasId;
+        this.renderer = new Renderer(canvasId);
+        this.loop = new GameLoop();
+        this.input = new InputManager();
+        this.audio = new AudioService();
+        this.particles = particleSystem;
+        this.timer = new GameTimer({
+            audio: this.audio,
+            onTimerComplete: this._handleTimerComplete.bind(this)
+        });
+        this.state = { t: 0, fps: 0 };
+        this.timer.bindState(this.state);
+        this.pathfinder = { findPath: computeEnemyPath };
+        this.player = null;
+        this.enemies = [];
+        this.level = null;
+        this.canvasSize = { width: 0, height: 0 };
+        this.ctx = null;
+        this.initialized = false;
+        this.audioPreloaded = false;
+        this.loseTimeoutId = null;
+        this.titleScreen = null;
+        if (typeof window !== 'undefined') {
+            window.AudioManager = this.audio;
+            window.Pathfinding = window.Pathfinding || {};
+            window.Pathfinding.findPath = window.Pathfinding.findPath || computeEnemyPath;
+        }
+        updateRuntimeServices({
+            audio: this.audio,
+            timer: this.timer,
+            particleSystem: this.particles,
+            startGame: this.startWithLevel.bind(this),
+            pauseGame: this.pause.bind(this),
+            resumeGame: this.resume.bind(this),
+            getCurrentLevel: function () { return this.level; }.bind(this),
+            getUiOptions: this._uiOptions.bind(this),
+            showWinScreen: function (options) { return showWinScreen(options || this._uiOptions()); }.bind(this),
+            showLoseScreen: function (options) { return showLoseScreen(options || this._uiOptions()); }.bind(this)
+        });
     }
 
-    var state = { t: 0 };
-    // 10-second game timer (seconds)
-    var TIMER_DURATION = 10;
-    // performance info
-    state.fps = 0;
-    var level = null;
-    var player = null;
-    var enemies = [];
+    init() {
+        if (this.initialized) return;
+        this.renderer.init();
+        this.ctx = this.renderer.getContext();
+        this.canvasSize = this.renderer.size();
+        this.initialized = true;
+    }
 
-    function startWithLevel(lvl) {
-        level = lvl;
-        // choose spawn point
-        var spawn = null;
-        if (level && typeof level.getObjects === 'function') {
-            var sp = level.getObjects('playerSpawn');
-            if (sp && sp.length) spawn = sp[0];
+    startWithLevel(levelData) {
+        this.init();
+        this.level = this._coerceLevel(levelData);
+        if (typeof window !== 'undefined') {
+            window._currentLevel = this.level;
         }
-        // Load default player explosion SFX (optional file; replace path if needed)
-        try {
-            if (window.AudioManager && typeof window.AudioManager.load === 'function') {
-                window.AudioManager.load('player_explode', 'assets/audio/player_explode.wav');
-                window.AudioManager.load('enemy_explode', 'assets/audio/enemy_explode.wav');
-                // countdown tick and final tick sounds
-                window.AudioManager.load('countdown', 'assets/audio/countdown.wav');
-                window.AudioManager.load('final', 'assets/audio/final.wav');
-                // win SFX
-                window.AudioManager.load('win', 'assets/audio/win.wav');
-            }
-        } catch (e) { console.warn('AudioManager.load failed', e); }
-        var startX = spawn ? spawn.x : (canvasSize.width / 2);
-        var startY = spawn ? spawn.y : (canvasSize.height / 2);
-        player = new (window.Player || function () { })(startX, startY, 32, 220);
+        this._resetState();
+        this._spawnPlayer();
+        this._spawnEnemies();
+        this._preloadAudio();
+        this._startLoop();
+    }
 
-        function update(dt) {
-            state.t += dt;
-            // update smoothed FPS
-            var inst = dt > 0 ? 1 / dt : 0;
-            state.fps = state.fps ? (state.fps * 0.9 + inst * 0.1) : inst;
-            if (window.Input) {
-                if (typeof window.Input.update === 'function') window.Input.update();
-                // pass level to player so it can use tile collisions
-                if (player && typeof player.update === 'function') player.update(dt, window.Input, level || canvasSize);
-                // update enemies
-                for (var i = enemies.length - 1; i >= 0; i--) {
-                    var e = enemies[i];
-                    if (e && typeof e.update === 'function') e.update(dt, player, level || canvasSize);
-                    if (!e || !e.isAlive || !e.isAlive()) {
-                        enemies.splice(i, 1);
-                    }
-                }
-                // update global particle system (if present)
-                if (window.ParticleSystem && typeof window.ParticleSystem.update === 'function') {
-                    window.ParticleSystem.update(dt);
-                }
-                // check explosions vs player (delegated to PlayerCollision)
-                if (player && window.PlayerCollision && typeof window.PlayerCollision.checkExplosionCollision === 'function') {
-                    try {
-                        var cres = window.PlayerCollision.checkExplosionCollision(player, enemies);
-                        if (cres && cres.killed) {
-                            player = null;
-                            if (!window._pendingLoseTimeout) {
-                                window._pendingLoseTimeout = setTimeout(function () {
-                                    try { if (window._currentGame && typeof window._currentGame.pause === 'function') window._currentGame.pause(); } catch (e) { }
-                                    try { if (typeof window.showLoseScreen === 'function') window.showLoseScreen(); } catch (e) { }
-                                    window._pendingLoseTimeout = null;
-                                }, 1000);
-                            }
-                        }
-                    } catch (e) { console.error('PlayerCollision.checkExplosionCollision error', e); }
-                }
-                // delegate timer update to GameTimer module
-                window.GameTimer.update(state, dt);
-            }
+    update(dt) {
+        if (!dt) return;
+        this.state.t += dt;
+        var inst = dt > 0 ? 1 / dt : 0;
+        this.state.fps = this.state.fps ? (this.state.fps * 0.9 + inst * 0.1) : inst;
+        if (typeof this.input.updateGamepadState === 'function') this.input.updateGamepadState();
+
+        var bounds = this.canvasSize;
+        if (this.player && typeof this.player.update === 'function') {
+            this.player.update(dt, { level: this.level, bounds: bounds }, bounds);
         }
 
-        function render() {
-            // draw level if available
-            try {
-                if (level && typeof level.draw === 'function') {
-                    level.draw(ctx);
-                } else {
-                    if (window.Renderer && typeof Renderer.clear === 'function') Renderer.clear('#111');
-                    else ctx.fillStyle = '#111', ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-                }
-            } catch (e) {
-                console.error('Level draw error, clearing canvas as fallback', e);
-                ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-            }
-
-            // draw player
-            try {
-                if (player && typeof player.draw === 'function') player.draw(ctx);
-            } catch (e) { console.error('Player draw error', e); }
-
-            // draw enemies
-            for (var j = 0; j < enemies.length; j++) {
-                try {
-                    var en = enemies[j];
-                    if (en && typeof en.draw === 'function') en.draw(ctx);
-                } catch (e) { console.error('Enemy draw error at index ' + j, e); }
-            }
-
-            // draw particles on top of entities
-            try {
-                if (window.ParticleSystem && typeof window.ParticleSystem.draw === 'function') {
-                    window.ParticleSystem.draw(ctx);
-                }
-            } catch (e) { console.error('ParticleSystem draw error', e); }
-
-            // draw FPS (top-right)
-            if (typeof state.fps === 'number' && !isNaN(state.fps)) {
-                var fpsText = Math.round(state.fps) + ' FPS';
-                ctx.save();
-                ctx.font = '14px monospace';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                // background box for readability
-                var padding = 6;
-                var metrics = ctx.measureText(fpsText);
-                var w = Math.max(60, metrics.width + padding * 2);
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(canvasSize.width - w - 8, 8, w, 22);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(fpsText, canvasSize.width - 8, 10);
-                ctx.restore();
-            }
-
-            // draw countdown timer via GameTimer
-            window.GameTimer.render(state, ctx, canvasSize);
-        }
-
-        // initialize timer for this run via GameTimer
-        window.GameTimer.init(state, TIMER_DURATION);
-
-        // spawn enemies from level object definitions
-        enemies = [];
-        if (level && typeof level.getObjects === 'function') {
-            var spawns = level.getObjects('enemySpawn');
-            if (Array.isArray(spawns)) {
-                for (var si = 0; si < spawns.length; si++) {
-                    var s = spawns[si];
-                    if (s && typeof s.x === 'number' && typeof s.y === 'number') {
-                        enemies.push(new window.Enemy({ x: s.x, y: s.y }));
-                    }
-                }
-            }
-        }
-
-        // expose pause/resume helpers for the current running game
-        window._currentGame = {
-            update: update,
-            render: render,
-            pause: function () {
-                // pause game loop if possible
-                if (window.GameLoop && typeof window.GameLoop.stop === 'function') {
-                    try { window.GameLoop.stop(); } catch (e) { }
-                }
-                // pause countdown via GameTimer
-                if (window.GameTimer && typeof window.GameTimer.pause === 'function') window.GameTimer.pause(state);
-            },
-            resume: function () {
-                // resume game loop if possible
-                if (window.GameLoop && typeof window.GameLoop.start === 'function') {
-                    window.GameLoop.start({ update: update, render: render });
-                }
-                // resume countdown via GameTimer
-                if (window.GameTimer && typeof window.GameTimer.resume === 'function') window.GameTimer.resume(state);
-            }
+        var enemyContext = {
+            player: this.player,
+            level: this.level,
+            bounds: bounds,
+            particleSystem: this.particles,
+            audio: this.audio,
+            pathfinder: this.pathfinder
         };
 
-        if (window.GameLoop && typeof window.GameLoop.start === 'function') {
-            window.GameLoop.start({ update: update, render: render });
-        } else {
-            var last = performance.now();
-            function fallback(now) {
-                var dt = (now - last) / 1000; last = now;
-                update(dt); render(); requestAnimationFrame(fallback);
+        for (var i = this.enemies.length - 1; i >= 0; i--) {
+            var enemy = this.enemies[i];
+            if (!enemy) {
+                this.enemies.splice(i, 1);
+                continue;
             }
-            requestAnimationFrame(fallback);
+            enemy.update(dt, enemyContext);
+            if (!enemy.isAlive || !enemy.isAlive()) {
+                this.enemies.splice(i, 1);
+            }
+        }
+
+        if (typeof this.particles.update === 'function') {
+            this.particles.update(dt);
+        }
+
+        if (this.player) {
+            var hit = checkExplosionCollision(this.player, this.enemies, { particleSystem: this.particles, audio: this.audio });
+            if (hit && hit.killed) {
+                this._handlePlayerDeath();
+            }
+        }
+
+        if (this.timer) {
+            this.timer.update(dt);
         }
     }
 
-    // win screen is provided by UI/winScreen.js; call window.showWinScreen when needed
+    render() {
+        if (!this.ctx) return;
+        try {
+            if (this.level && typeof this.level.draw === 'function') {
+                this.level.draw(this.ctx);
+            } else {
+                this.renderer.clear('#111');
+            }
+        } catch (err) {
+            console.error('Level draw error, clearing canvas as fallback', err);
+            this.renderer.clear('#111');
+        }
 
+        if (this.player && typeof this.player.draw === 'function') {
+            try { this.player.draw(this.ctx); } catch (err) { console.error('Player draw error', err); }
+        }
 
-    // expose starter for title screen or external callers
-    window.startWithLevel = startWithLevel;
+        for (var i = 0; i < this.enemies.length; i++) {
+            var enemy = this.enemies[i];
+            if (enemy && typeof enemy.draw === 'function') {
+                try { enemy.draw(this.ctx); } catch (err) { console.error('Enemy draw error', err); }
+            }
+        }
 
-    // load level, then start
-    if (window.skipAutoStart) {
-        // Title screen will call startWithLevel when the player chooses a level.
-        // If a title script preloaded a level into window._pendingLevel, start it now.
+        if (typeof this.particles.draw === 'function') {
+            try { this.particles.draw(this.ctx); } catch (err) { console.error('Particle draw error', err); }
+        }
+
+        this._renderFPS();
+
+        if (this.timer) {
+            this.timer.render(this.ctx, this.canvasSize);
+        }
+    }
+
+    pause() {
+        this._stopLoop();
+        if (this.timer) {
+            this.timer.pause();
+        }
+    }
+
+    resume() {
+        if (this.loop.running) return;
+        this._startLoop();
+        if (this.timer) {
+            this.timer.resume();
+        }
+    }
+
+    _resetState() {
+        this.state.t = 0;
+        this.state.fps = 0;
+        if (this.timer) {
+            this.timer.bindState(this.state);
+            this.timer.init(TIMER_DURATION);
+        }
+    }
+
+    _spawnPlayer() {
+        var spawn = null;
+        if (this.level && typeof this.level.getObjects === 'function') {
+            var spawns = this.level.getObjects('playerSpawn');
+            if (spawns && spawns.length) spawn = spawns[0];
+        }
+        var startX = spawn ? spawn.x : (this.canvasSize.width / 2);
+        var startY = spawn ? spawn.y : (this.canvasSize.height / 2);
+        this.player = new Player({ x: startX, y: startY, input: this.input });
+    }
+
+    _spawnEnemies() {
+        this.enemies = [];
+        if (!this.level || typeof this.level.getObjects !== 'function') return;
+        var spawns = this.level.getObjects('enemySpawn');
+        if (!Array.isArray(spawns)) return;
+        for (var i = 0; i < spawns.length; i++) {
+            var s = spawns[i];
+            if (!s || typeof s.x !== 'number' || typeof s.y !== 'number') continue;
+            this.enemies.push(new Enemy({ x: s.x, y: s.y }, { particles: this.particles, audio: this.audio, pathfinder: this.pathfinder }));
+        }
+    }
+
+    _preloadAudio() {
+        if (this.audioPreloaded) return;
+        var manifest = [
+            { key: 'player_explode', src: 'assets/audio/player_explode.wav' },
+            { key: 'enemy_explode', src: 'assets/audio/enemy_explode.wav' },
+            { key: 'countdown', src: 'assets/audio/countdown.wav' },
+            { key: 'final', src: 'assets/audio/final.wav' },
+            { key: 'win', src: 'assets/audio/win.wav' }
+        ];
+        for (var i = 0; i < manifest.length; i++) {
+            var item = manifest[i];
+            try { this.audio.load(item.key, item.src); } catch (err) { console.warn('Audio load failed for', item.key, err); }
+        }
+        this.audioPreloaded = true;
+    }
+
+    _handlePlayerDeath() {
+        this.player = null;
+        if (this.loseTimeoutId) return;
+        this.loseTimeoutId = setTimeout(function () {
+            this.pause();
+            try {
+                showLoseScreen(this._uiOptions());
+            } catch (err) {
+                console.error('showLoseScreen error', err);
+                if (typeof window !== 'undefined' && typeof window.showLoseScreen === 'function') {
+                    window.showLoseScreen();
+                }
+            }
+            this.loseTimeoutId = null;
+        }.bind(this), 1000);
+    }
+
+    _handleTimerComplete() {
+        this.pause();
+        try {
+            showWinScreen(this._uiOptions());
+        } catch (err) {
+            console.error('showWinScreen error', err);
+            if (typeof window !== 'undefined' && typeof window.showWinScreen === 'function') {
+                window.showWinScreen();
+            }
+        }
+    }
+
+    _uiOptions() {
+        var self = this;
+        return {
+            startGame: function (level) { self.startWithLevel(level); },
+            getCurrentLevel: function () { return self.level; },
+            pauseGame: function () { self.pause(); },
+            resumeGame: function () { self.resume(); },
+            audio: self.audio,
+            showTitle: self.titleScreen && typeof self.titleScreen.show === 'function'
+                ? self.titleScreen.show.bind(self.titleScreen)
+                : (typeof window !== 'undefined' && typeof window.showTitleScreen === 'function' ? window.showTitleScreen : null)
+        };
+    }
+
+    _startLoop() {
+        this._stopLoop();
+        this.loop.start({ update: this.update.bind(this), render: this.render.bind(this) });
+        if (typeof window !== 'undefined') {
+            window._currentGame = {
+                pause: this.pause.bind(this),
+                resume: this.resume.bind(this)
+            };
+        }
+    }
+
+    _stopLoop() {
+        if (this.loop && this.loop.running) {
+            this.loop.stop();
+        }
+    }
+
+    _renderFPS() {
+        if (!this.ctx || !this.state || typeof this.state.fps !== 'number' || isNaN(this.state.fps)) return;
+        var fpsText = Math.round(this.state.fps) + ' FPS';
+        this.ctx.save();
+        this.ctx.font = '14px monospace';
+        this.ctx.textAlign = 'right';
+        this.ctx.textBaseline = 'top';
+        var padding = 6;
+        var metrics = this.ctx.measureText(fpsText);
+        var w = Math.max(60, metrics.width + padding * 2);
+        this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        this.ctx.fillRect(this.canvasSize.width - w - 8, 8, w, 22);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.fillText(fpsText, this.canvasSize.width - 8, 10);
+        this.ctx.restore();
+    }
+
+    _coerceLevel(levelData) {
+        if (!levelData) return null;
+        if (typeof levelData.getObjects === 'function') return levelData;
+        if (levelData.tiles) {
+            return LevelManager.loadFromData(levelData);
+        }
+        return levelData;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    var engine = new GameEngine('myCanvas');
+    engine.init();
+    if (typeof window !== 'undefined') {
+        window.GameEngine = engine;
+        window.startWithLevel = engine.startWithLevel.bind(engine);
+    }
+
+    var titleScreen = null;
+    if (typeof window !== 'undefined') {
+        titleScreen = new TitleScreenController({ startGame: engine.startWithLevel.bind(engine), audio: engine.audio });
+        window.TitleScreen = titleScreen;
+        engine.titleScreen = titleScreen;
+        updateRuntimeServices({
+            titleScreen: titleScreen,
+            showTitleScreen: titleScreen.show.bind(titleScreen),
+            showTitle: titleScreen.show.bind(titleScreen)
+        });
+        titleScreen.showOnBoot().catch(function (err) {
+            console.error('Failed to show title screen on boot:', err);
+        });
+    }
+
+    if (typeof window !== 'undefined' && window.skipAutoStart) {
         if (window._pendingLevel) {
-            startWithLevel(window._pendingLevel);
+            engine.startWithLevel(window._pendingLevel);
             window._pendingLevel = null;
         }
-    } else {
-        if (window.LevelManager && typeof window.LevelManager.load === 'function') {
-            LevelManager.load('assets/levels/level1.json').then(function (lvl) {
-                startWithLevel(lvl);
-            }).catch(function (err) {
-                console.error('Failed to load level:', err);
-                // start without level as fallback
-                startWithLevel(null);
-            });
-        } else {
-            startWithLevel(null);
-        }
+        return;
     }
+
+    LevelManager.load('assets/levels/level1.json').then(function (lvl) {
+        engine.startWithLevel(lvl);
+    }).catch(function (err) {
+        console.error('Failed to load level:', err);
+        engine.startWithLevel(null);
+    });
 });
 

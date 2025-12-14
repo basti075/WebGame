@@ -1,33 +1,32 @@
 // Shared loader for assets/levels/levels.json with caching
-(function () {
-    'use strict';
-    var cache = null;
-    var pending = null;
+let cache = null;
+let pending = null;
 
-    function getLevels() {
-        if (cache) return Promise.resolve(cache);
-        if (pending) return pending;
-        pending = fetch('assets/levels/levels.json').then(function (r) {
-            if (!r.ok) throw new Error('manifest fetch failed');
-            return r.json();
-        }).then(function (data) {
+export function getLevels() {
+    if (cache) return Promise.resolve(cache);
+    if (pending) return pending;
+    pending = fetch('assets/levels/levels.json')
+        .then(function (response) {
+            if (!response.ok) throw new Error('manifest fetch failed');
+            return response.json();
+        })
+        .then(function (data) {
             cache = data;
             pending = null;
             return cache;
-        }).catch(function (err) {
+        })
+        .catch(function (error) {
             pending = null;
-            throw err;
+            throw error;
         });
-        return pending;
-    }
+    return pending;
+}
 
-    // Allow manual injection (useful for tests or other code)
-    function setLevels(list) {
-        cache = list || null;
-    }
+export function setLevels(list) {
+    cache = list || null;
+    pending = null;
+}
 
-    window.LevelsManifest = {
-        getLevels: getLevels,
-        setLevels: setLevels
-    };
-})();
+if (typeof window !== 'undefined') {
+    window.LevelsManifest = { getLevels: getLevels, setLevels: setLevels };
+}

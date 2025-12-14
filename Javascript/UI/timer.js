@@ -1,78 +1,71 @@
-// Game timer module: manages a countdown and drawing in the UI folder
-(function () {
-    'use strict';
+import { getRuntimeServices } from '../services/runtimeServices.js';
 
-    var GameTimer = {};
+export class GameTimer {
+    constructor(options) {
+        options = options || {};
+        this.state = null;
+        this.audio = options.audio || resolveRuntimeAudio();
+        this.onTimerComplete = typeof options.onTimerComplete === 'function' ? options.onTimerComplete : fallbackWinScreen;
+    }
 
-    // Initialize the timer on a shared state object
-    // state: a plain object (main uses `state`)
-    // duration: seconds
-    GameTimer.init = function (state, duration) {
-        state.timer = typeof duration === 'number' ? duration : 0;
-        state.timerRunning = true;
-        state._lastTimerCeil = Math.ceil(state.timer);
-        state._timerFlashTime = 0;
-        state._timerFlashTotal = 0;
-        state._timerFlashColor = null;
-    };
+    bindState(state) {
+        this.state = state;
+    }
 
-    GameTimer.update = function (state, dt) {
-        if (!state) return;
-        if (typeof state.timerRunning === 'undefined') state.timerRunning = true;
-        if (state.timerRunning && typeof state.timer === 'number') {
-            var prev = state.timer;
-            state.timer = Math.max(0, state.timer - dt);
-            var prevCeil = Math.ceil(prev);
-            var newCeil = Math.ceil(state.timer);
-            if (state.timer <= 3 && newCeil < prevCeil && newCeil > 0) {
-                state._timerFlashColor = 'red';
-                state._timerFlashTime = 0.18;
-                state._timerFlashTotal = 0.18;
-            }
-            // play tick sounds when the displayed second changes
-            if (newCeil < prevCeil) {
-                try {
-                    if (window.AudioManager && typeof window.AudioManager.play === 'function') {
-                        if (newCeil > 3) {
-                            window.AudioManager.play('countdown');
-                        } else if (newCeil > 0 && newCeil <= 3) {
-                            window.AudioManager.play('final');
-                        }
-                    }
-                } catch (e) { console.warn('GameTimer sound play failed', e); }
-            }
-            if (prev > 0 && state.timer === 0) {
-                state._timerFlashColor = 'green';
-                state._timerFlashTime = 0.6;
-                state._timerFlashTotal = 0.6;
-                state.timerRunning = false;
-                try { if (typeof window.showWinScreen === 'function') window.showWinScreen(); } catch (e) { console.error('showWinScreen error', e); }
-                // play win sound if available
-                try {
-                    if (window.AudioManager && typeof window.AudioManager.play === 'function') {
-                        window.AudioManager.play('win');
-                    }
-                } catch (e) { console.warn('GameTimer win sound play failed', e); }
-            }
-            if (state._timerFlashTime > 0) state._timerFlashTime = Math.max(0, state._timerFlashTime - dt);
+    init(durationSeconds) {
+        if (!this.state) throw new Error('GameTimer.init requires a bound state object');
+        this.state.timer = typeof durationSeconds === 'number' ? durationSeconds : 0;
+        this.state.timerRunning = true;
+        this.state._timerFlashTime = 0;
+        this.state._timerFlashTotal = 0;
+        this.state._timerFlashColor = null;
+        this.state._lastTimerCeil = Math.ceil(this.state.timer);
+    }
+
+    update(dt) {
+        if (!this.state || typeof this.state.timer !== 'number') return;
+        if (typeof this.state.timerRunning === 'undefined') this.state.timerRunning = true;
+        if (!this.state.timerRunning) {
+            this._tickFlash(dt);
+            return;
         }
-    };
+        var prev = this.state.timer;
+        this.state.timer = Math.max(0, this.state.timer - dt);
+        var prevCeil = Math.ceil(prev);
+        var newCeil = Math.ceil(this.state.timer);
 
-    GameTimer.render = function (state, ctx, canvasSize) {
-        if (!state || typeof state.timer !== 'number') return;
+        if (this.state.timer <= 3 && newCeil < prevCeil && newCeil > 0) {
+            this._flash('red', 0.18);
+        }
+
+        if (newCeil < prevCeil) {
+            this._playTickSound(newCeil);
+        }
+
+        if (prev > 0 && this.state.timer === 0) {
+            this.state.timerRunning = false;
+            this._flash('green', 0.6);
+            this._handleTimerComplete();
+        }
+
+        this._tickFlash(dt);
+    }
+
+    render(ctx, canvasSize) {
+        if (!ctx || !this.state || typeof this.state.timer !== 'number') return;
         try {
             ctx.save();
             ctx.font = '20px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
-            var txt = Math.ceil(state.timer) + 's';
+            var txt = Math.ceil(this.state.timer) + 's';
             var w = ctx.measureText(txt).width + 16;
             var x = canvasSize.width / 2 - w / 2;
 
-            if (state._timerFlashTime > 0 && state._timerFlashColor && state._timerFlashTotal > 0) {
-                var pO = 1 - (state._timerFlashTime / state._timerFlashTotal);
+            if (this._isFlashing()) {
+                var pO = 1 - (this.state._timerFlashTime / this.state._timerFlashTotal);
                 var easeO = 0.5 - 0.5 * Math.cos(Math.PI * pO);
-                var outlineCol = state._timerFlashColor === 'red' ? '255,50,50' : '50,255,100';
+                var outlineCol = this.state._timerFlashColor === 'red' ? '255,50,50' : '50,255,100';
                 ctx.save();
                 ctx.strokeStyle = 'rgba(' + outlineCol + ',1)';
                 ctx.lineWidth = 8 + easeO * 16;
@@ -82,26 +75,24 @@
                 ctx.restore();
             }
 
-            // timer background (always same)
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(x, 8, w, 28);
 
-            // neon pulsing text when flashing: draw colored glow then white core
             var cx = canvasSize.width / 2;
             var cy = 12;
-            if (state._timerFlashTime > 0 && state._timerFlashColor && state._timerFlashTotal > 0) {
-                var p = 1 - (state._timerFlashTime / state._timerFlashTotal);
+            if (this._isFlashing()) {
+                var p = 1 - (this.state._timerFlashTime / this.state._timerFlashTotal);
                 var ease = 0.5 - 0.5 * Math.cos(Math.PI * p);
                 var glow = 18 + ease * 44;
                 var scale = 1 + 0.10 * ease;
-                var col = state._timerFlashColor === 'red' ? '255,50,50' : '50,255,100';
+                var col = this.state._timerFlashColor === 'red' ? '255,50,50' : '50,255,100';
 
                 ctx.save();
                 ctx.translate(cx, cy);
                 ctx.scale(scale, scale);
                 ctx.shadowColor = 'rgba(' + col + ',0.98)';
                 ctx.shadowBlur = glow;
-                ctx.fillStyle = state._timerFlashColor === 'red' ? 'rgba(255,140,140,1)' : 'rgba(180,255,220,1)';
+                ctx.fillStyle = this.state._timerFlashColor === 'red' ? 'rgba(255,140,140,1)' : 'rgba(180,255,220,1)';
                 ctx.fillText(txt, 0, 0);
                 ctx.restore();
 
@@ -116,21 +107,86 @@
                 ctx.fillText(txt, cx, cy);
             }
             ctx.restore();
-        } catch (e) {
-            // swallow drawing errors
-            console.error('GameTimer.render error', e);
+        } catch (error) {
+            console.error('GameTimer.render error', error);
         }
-    };
+    }
 
-    GameTimer.pause = function (state) {
-        if (!state) return;
-        state.timerRunning = false;
-    };
+    pause() {
+        if (!this.state) return;
+        this.state.timerRunning = false;
+    }
 
-    GameTimer.resume = function (state) {
-        if (!state) return;
-        state.timerRunning = true;
-    };
+    resume() {
+        if (!this.state || this.state.timer <= 0) return;
+        this.state.timerRunning = true;
+    }
 
-    window.GameTimer = GameTimer;
-})();
+    _isFlashing() {
+        return this.state && this.state._timerFlashTime > 0 && this.state._timerFlashTotal > 0 && this.state._timerFlashColor;
+    }
+
+    _flash(color, duration) {
+        if (!this.state) return;
+        this.state._timerFlashColor = color;
+        this.state._timerFlashTime = duration;
+        this.state._timerFlashTotal = duration;
+    }
+
+    _tickFlash(dt) {
+        if (this._isFlashing()) {
+            this.state._timerFlashTime = Math.max(0, this.state._timerFlashTime - dt);
+        }
+    }
+
+    _playTickSound(remainingSeconds) {
+        var soundKey = null;
+        if (remainingSeconds > 3) soundKey = 'countdown';
+        else if (remainingSeconds > 0) soundKey = 'final';
+        if (!soundKey) return;
+        this._playSound(soundKey);
+    }
+
+    _handleTimerComplete() {
+        this._playSound('win');
+        if (this.onTimerComplete) {
+            try { this.onTimerComplete(); } catch (error) { console.error('onTimerComplete error', error); }
+        } else {
+            fallbackWinScreen();
+        }
+    }
+
+    _playSound(key) {
+        var target = this.audio || resolveRuntimeAudio();
+        if (!target || typeof target.play !== 'function') return;
+        try { target.play(key); } catch (error) { console.warn('GameTimer sound play failed', key, error); }
+    }
+}
+
+if (typeof window !== 'undefined') {
+    var legacyTimer = new GameTimer({ audio: resolveRuntimeAudio(), onTimerComplete: fallbackWinScreen });
+    window.GameTimer = {
+        init: function (state, duration) { legacyTimer.bindState(state); legacyTimer.init(duration); },
+        update: function (state, dt) { legacyTimer.bindState(state); legacyTimer.update(dt); },
+        render: function (state, ctx, canvasSize) { legacyTimer.bindState(state); legacyTimer.render(ctx, canvasSize); },
+        pause: function (state) { legacyTimer.bindState(state); legacyTimer.pause(); },
+        resume: function (state) { legacyTimer.bindState(state); legacyTimer.resume(); }
+    };
+}
+
+function resolveRuntimeAudio() {
+    var runtime = getRuntimeServices() || {};
+    if (runtime.audio) return runtime.audio;
+    if (typeof window !== 'undefined' && window.AudioManager) return window.AudioManager;
+    return null;
+}
+
+function fallbackWinScreen() {
+    var runtime = getRuntimeServices() || {};
+    if (typeof runtime.showWinScreen === 'function') {
+        try { runtime.showWinScreen(); return; } catch (error) { console.error('runtime showWinScreen failed', error); }
+    }
+    if (typeof window !== 'undefined' && typeof window.showWinScreen === 'function') {
+        try { window.showWinScreen(); } catch (error) { console.error('window showWinScreen failed', error); }
+    }
+}

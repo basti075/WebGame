@@ -1,21 +1,29 @@
+:root {
+  --page-bg: #f5f0dc;
+}
+
 html,
 body {
   height: 100%;
   margin: 0;
+  background-color: var(--page-bg);
 }
 
 body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #9e9e9e;
-  /* grey browser window background */
+  background-color: var(--page-bg);
+  color: #111;
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  min-height: 100vh;
 }
 
 canvas {
   background-color: #000000;
-  /* beige canvas background */
-  border: 1px solid black;
+  border: 2px solid #111;
+  border-radius: 8px;
   display: block;
   image-rendering: pixelated;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
