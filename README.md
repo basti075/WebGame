@@ -14,5 +14,5 @@ All sound effects are licensed under Creative Commons 0 and sourced from Freesou
 - **8-Bit - Collect sound / Timer / Countdown** by Breviceps — https://freesound.org/s/450614/
 - **8-bit Explosion1.wav** by timgormly — https://freesound.org/s/162792/
 - **Completed.wav** by Kenneth_Cooney — https://freesound.org/s/609336/
-## Collaboration Note
+## Note on the use of generative AI
 The level editor and the CSS styling refinements were created with the help of GitHub Copilot.
