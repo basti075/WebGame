@@ -20,7 +20,7 @@ export class Enemy extends Entity {
             size: typeof opts.size === 'number' ? opts.size : 24
         });
         this.speed = typeof opts.speed === 'number' ? opts.speed : 165;
-        this.chaseDuration = typeof opts.chaseDuration === 'number' ? opts.chaseDuration : 5;
+        this.chaseDuration = typeof opts.chaseDuration === 'number' ? opts.chaseDuration : 9;
         this.colorRGB = typeof opts.colorRGB === 'string' ? opts.colorRGB : '255,60,60';
         this.explosionDuration = typeof opts.explosionTime === 'number' ? opts.explosionTime : 0.6;
         this.state = EnemyState.CHASE;
